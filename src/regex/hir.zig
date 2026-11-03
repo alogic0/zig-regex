@@ -95,14 +95,7 @@ pub const Hir = struct {
     fast_path: FastPath,
 
     pub fn deinit(self: Hir, allocator: std.mem.Allocator) void {
-        for (self.nodes) |node| {
-            switch (node) {
-                .concat => |children| allocator.free(children),
-                .alternation => |branches| allocator.free(branches),
-                .char_class => |class| allocator.free(class.items),
-                else => {},
-            }
-        }
+        for (self.nodes) |node| deinitNode(allocator, node);
 
         allocator.free(self.nodes);
         for (self.capture_names) |name| {
@@ -113,6 +106,15 @@ pub const Hir = struct {
         allocator.free(self.prefix.bytes);
     }
 };
+
+fn deinitNode(allocator: std.mem.Allocator, node: Node) void {
+    switch (node) {
+        .concat => |children| allocator.free(children),
+        .alternation => |branches| allocator.free(branches),
+        .char_class => |class| allocator.free(class.items),
+        else => {},
+    }
+}
 
 pub const LowerError = error{
     OutOfMemory,
@@ -128,14 +130,7 @@ const max_case_folded_range_size: u32 = 2048;
 pub fn lower(allocator: std.mem.Allocator, ast: parser.Ast) LowerError!Hir {
     var nodes: std.ArrayList(Node) = .empty;
     errdefer {
-        for (nodes.items) |node| {
-            switch (node) {
-                .concat => |children| allocator.free(children),
-                .alternation => |branches| allocator.free(branches),
-                .char_class => |class| allocator.free(class.items),
-                else => {},
-            }
-        }
+        for (nodes.items) |node| deinitNode(allocator, node);
         nodes.deinit(allocator);
     }
 
@@ -200,7 +195,8 @@ fn applyScopedCaseFoldNode(
     const node = &hir.nodes[@backingInt(node_id)];
     switch (node.*) {
         .literal => |cp| {
-            node.* = .{ .char_class = try foldedLiteralClass(allocator, cp) };
+            const folded = try foldedLiteralClass(allocator, cp);
+            node.* = .{ .char_class = folded };
         },
         .unicode_property => |property| {
             node.* = .{ .unicode_property = .{
@@ -272,6 +268,7 @@ fn lowerNode(
         } },
     };
 
+    errdefer deinitNode(allocator, lowered);
     try out.append(allocator, lowered);
     return @fromBackingInt(@intCast(out.items.len - 1));
 }
@@ -294,7 +291,8 @@ fn lowerChildren(
 
 fn dupCaptureNames(allocator: std.mem.Allocator, input: []const ?[]const u8) LowerError![]const ?[]const u8 {
     const duped = try allocator.alloc(?[]const u8, input.len);
-    errdefer allocator.free(duped);
+    @memset(duped, null);
+    errdefer freeCaptureNames(allocator, duped);
 
     for (input, 0..) |name, index| {
         duped[index] = if (name) |capture_name|

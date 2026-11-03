@@ -46,6 +46,16 @@ Consumer integration changes dependency/module wiring and removes the replaced
 subtree. Correctness fixes, if required by focused checks, must be recorded
 separately from the source relocation.
 
+The follow-up allocation-failure test exposed inherited double-free and leak
+paths during parser/HIR/NFA construction and VM thread admission. The revised
+surface adds about 100 logical lines of ownership cleanup across the existing
+owners, with no new runtime subsystem. Partially built node/instruction payloads,
+capture names, patch lists, class expressions and cloned VM slots now have a
+single cleanup owner; case folding prepares a replacement before changing a
+union tag. Fault injection covers every allocation in named/unnamed capture,
+case-fold, literal/DFA, bounded repetition, class-set and raw-byte scenarios.
+These error-path repairs are kept in a separate commit from the extraction.
+
 ## Unicode data
 
 `src/regex/unicode_props_generated.zig` contains the inherited checked-in tables.

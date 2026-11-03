@@ -42,16 +42,17 @@ pub fn duplicatePrefilter(
     if (literals.len == 0) return null;
 
     const duped = try allocator.alloc(LiteralSequence, literals.len);
-    errdefer allocator.free(duped);
+    var initialized: usize = 0;
+    errdefer {
+        for (duped[0..initialized]) |literal| allocator.free(literal.bytes);
+        allocator.free(duped);
+    }
 
     for (literals, 0..) |literal, index| {
         duped[index] = .{
             .bytes = try allocator.dupe(u8, literal.bytes),
         };
-        errdefer {
-            var i: usize = 0;
-            while (i <= index) : (i += 1) allocator.free(duped[i].bytes);
-        }
+        initialized += 1;
     }
 
     return .{ .required = duped };

@@ -464,9 +464,11 @@ pub const MatchEngine = struct {
             .match => return try self.buildMatch(program, slots),
             .literal, .char_class, .char_class_set, .unicode_property, .any => {
                 if (!hasThread(list.items, inst_ptr)) {
+                    const owned_slots = try self.cloneSlots(slots);
+                    errdefer self.allocator.free(owned_slots);
                     try list.append(self.allocator, .{
                         .inst_ptr = inst_ptr,
-                        .slots = try self.cloneSlots(slots),
+                        .slots = owned_slots,
                     });
                 }
                 return null;

@@ -93,14 +93,7 @@ pub const Ast = struct {
     capture_names: []const ?[]const u8,
 
     pub fn deinit(self: Ast, allocator: std.mem.Allocator) void {
-        for (self.nodes) |node| {
-            switch (node) {
-                .concat => |children| allocator.free(children),
-                .alternation => |branches| allocator.free(branches),
-                .char_class => |class| allocator.free(class.items),
-                else => {},
-            }
-        }
+        for (self.nodes) |node| deinitNode(allocator, node);
         for (self.capture_names) |name| {
             if (name) |capture_name| allocator.free(capture_name);
         }
@@ -108,6 +101,15 @@ pub const Ast = struct {
         allocator.free(self.capture_names);
     }
 };
+
+fn deinitNode(allocator: std.mem.Allocator, node: Node) void {
+    switch (node) {
+        .concat => |children| allocator.free(children),
+        .alternation => |branches| allocator.free(branches),
+        .char_class => |class| allocator.free(class.items),
+        else => {},
+    }
+}
 
 pub const ParseError = lexer_mod.LexError || error{
     OutOfMemory,
@@ -164,6 +166,7 @@ pub const Parser = struct {
 
     pub fn parse(self: *Parser) ParseError!Ast {
         defer self.nodes.deinit(self.allocator);
+        errdefer for (self.nodes.items) |node| deinitNode(self.allocator, node);
         errdefer self.captureNamesDeinit();
 
         const root = self.parseAlternation() catch |err| {
@@ -172,8 +175,13 @@ pub const Parser = struct {
         };
         if (self.lookahead.token != .eof) return self.fail(error.TrailingInput, self.lookahead.span);
 
+        const nodes = try self.nodes.toOwnedSlice(self.allocator);
+        errdefer {
+            for (nodes) |node| deinitNode(self.allocator, node);
+            self.allocator.free(nodes);
+        }
         return .{
-            .nodes = try self.nodes.toOwnedSlice(self.allocator),
+            .nodes = nodes,
             .root = root,
             .capture_count = self.capture_count,
             .capture_names = try self.capture_names.toOwnedSlice(self.allocator),
@@ -467,11 +475,13 @@ pub const Parser = struct {
 
     fn parseNamedCaptureGroup(self: *Parser) ParseError!NodeId {
         const capture_name = try self.parseCaptureName();
-        errdefer self.allocator.free(capture_name);
 
         const group_index = self.capture_count;
         self.capture_count += 1;
-        try self.capture_names.append(self.allocator, capture_name);
+        self.capture_names.append(self.allocator, capture_name) catch |err| {
+            self.allocator.free(capture_name);
+            return err;
+        };
 
         const saved_modes = self.modeState();
         defer self.restoreModeState(saved_modes);
@@ -821,6 +831,7 @@ pub const Parser = struct {
     }
 
     fn push(self: *Parser, node: Node) !NodeId {
+        errdefer deinitNode(self.allocator, node);
         try self.nodes.append(self.allocator, node);
         return @fromBackingInt(@intCast(self.nodes.items.len - 1));
     }

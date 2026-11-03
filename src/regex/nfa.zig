@@ -111,20 +111,22 @@ pub const Program = struct {
     can_match_newline: bool,
 
     pub fn deinit(self: Program, allocator: std.mem.Allocator) void {
-        for (self.instructions) |inst| {
-            switch (inst) {
-                .char_class => |class| allocator.free(class.items),
-                .char_class_set => |class_set| {
-                    class_set.expr.deinit(allocator);
-                    allocator.destroy(class_set.expr);
-                },
-                else => {},
-            }
-        }
+        for (self.instructions) |inst| deinitInstruction(allocator, inst);
         if (self.prefilter) |prefilter| prefilter.deinit(allocator);
         allocator.free(self.instructions);
     }
 };
+
+fn deinitInstruction(allocator: std.mem.Allocator, inst: Inst) void {
+    switch (inst) {
+        .char_class => |class| allocator.free(class.items),
+        .char_class_set => |class_set| {
+            class_set.expr.deinit(allocator);
+            allocator.destroy(class_set.expr);
+        },
+        else => {},
+    }
+}
 
 pub const CompileError = error{
     OutOfMemory,
@@ -162,6 +164,7 @@ pub fn compile(allocator: std.mem.Allocator, compiled_hir: hir_mod.Hir, options:
         .options = options,
     };
     defer compiler.instructions.deinit(allocator);
+    errdefer for (compiler.instructions.items) |inst| deinitInstruction(allocator, inst);
 
     var fragment = try compiler.compileNode(compiled_hir, compiled_hir.root);
     defer fragment.outs.deinit(allocator);
@@ -177,15 +180,20 @@ pub fn compile(allocator: std.mem.Allocator, compiled_hir: hir_mod.Hir, options:
         .out = fragment.start,
     } });
 
+    const prefilter = try literal_mod.duplicatePrefilter(allocator, compiled_hir.literals);
+    errdefer if (prefilter) |value| value.deinit(allocator);
+    const ascii_only = isAsciiOnly(compiler.instructions.items);
+    const has_word_boundary = hasWordBoundary(compiler.instructions.items);
+    const has_unicode_property = hasUnicodeProperty(compiler.instructions.items);
     return .{
         .instructions = try compiler.instructions.toOwnedSlice(allocator),
         .start = start_save,
         .capture_count = compiled_hir.capture_count,
         .slot_count = 2 * (compiled_hir.capture_count + 1),
-        .prefilter = try literal_mod.duplicatePrefilter(allocator, compiled_hir.literals),
-        .ascii_only = isAsciiOnly(compiler.instructions.items),
-        .has_word_boundary = hasWordBoundary(compiler.instructions.items),
-        .has_unicode_property = hasUnicodeProperty(compiler.instructions.items),
+        .prefilter = prefilter,
+        .ascii_only = ascii_only,
+        .has_word_boundary = has_word_boundary,
+        .has_unicode_property = has_unicode_property,
         .has_scoped_line_modes = hirHasScopedLineModes(compiled_hir, compiled_hir.root),
         .dot_matches_new_line = options.multiline_dotall,
         .can_match_newline = can_match_newline,
@@ -543,10 +551,6 @@ const Compiler = struct {
         class_set: @FieldType(hir_mod.Node, "char_class_set"),
     ) CompileError!Fragment {
         const expr = try self.compileClassExpr(compiled_hir, class_set.lhs, class_set.rhs, class_set.op);
-        errdefer {
-            expr.deinit(self.allocator);
-            self.allocator.destroy(expr);
-        }
 
         const index = try self.emit(.{ .char_class_set = .{
             .expr = expr,
@@ -565,8 +569,13 @@ const Compiler = struct {
     ) CompileError!*CompiledClassExpr {
         const expr = try self.allocator.create(CompiledClassExpr);
         errdefer self.allocator.destroy(expr);
+        const lhs = try self.compileClassExprNode(compiled_hir, lhs_id);
+        errdefer {
+            lhs.deinit(self.allocator);
+            self.allocator.destroy(lhs);
+        }
         expr.* = .{ .set = .{
-            .lhs = try self.compileClassExprNode(compiled_hir, lhs_id),
+            .lhs = lhs,
             .rhs = try self.compileClassExprNode(compiled_hir, rhs_id),
             .op = op,
         } };
@@ -591,8 +600,13 @@ const Compiler = struct {
                 } };
             },
             .char_class_set => |class_set| {
+                const lhs = try self.compileClassExprNode(compiled_hir, class_set.lhs);
+                errdefer {
+                    lhs.deinit(self.allocator);
+                    self.allocator.destroy(lhs);
+                }
                 expr.* = .{ .set = .{
-                    .lhs = try self.compileClassExprNode(compiled_hir, class_set.lhs),
+                    .lhs = lhs,
                     .rhs = try self.compileClassExprNode(compiled_hir, class_set.rhs),
                     .op = class_set.op,
                 } };
@@ -610,14 +624,15 @@ const Compiler = struct {
         child: hir_mod.NodeId,
     ) CompileError!Fragment {
         var body = try self.compileNode(compiled_hir, child);
+        defer body.outs.deinit(self.allocator);
         const start_slot = 2 * (group_index + 1);
         const end_slot = start_slot + 1;
 
         const end_save = try self.emit(.{ .save = .{ .slot = end_slot } });
         try self.patch(body.outs.items, end_save);
-        body.outs.deinit(self.allocator);
 
         var outs: std.ArrayList(PatchRef) = .empty;
+        errdefer outs.deinit(self.allocator);
         try outs.append(self.allocator, .{ .inst = end_save, .slot = .out });
 
         const start_save = try self.emit(.{ .save = .{
@@ -635,8 +650,10 @@ const Compiler = struct {
         if (children.len == 0) return self.compileEmpty();
 
         var result = try self.compileNode(compiled_hir, children[0]);
+        errdefer result.outs.deinit(self.allocator);
         for (children[1..]) |child| {
-            const next = try self.compileNode(compiled_hir, child);
+            var next = try self.compileNode(compiled_hir, child);
+            errdefer next.outs.deinit(self.allocator);
             try self.patch(result.outs.items, next.start);
             result.outs.deinit(self.allocator);
             result.outs = next.outs;
@@ -649,8 +666,10 @@ const Compiler = struct {
         if (branches.len == 1) return self.compileNode(compiled_hir, branches[0]);
 
         var result = try self.compileNode(compiled_hir, branches[0]);
+        errdefer result.outs.deinit(self.allocator);
         for (branches[1..]) |branch| {
             var next = try self.compileNode(compiled_hir, branch);
+            defer next.outs.deinit(self.allocator);
             const split = try self.emit(.{ .split = .{
                 .out = result.start,
                 .out1 = next.start,
@@ -662,7 +681,6 @@ const Compiler = struct {
             try merged.appendSlice(self.allocator, next.outs.items);
 
             result.outs.deinit(self.allocator);
-            next.outs.deinit(self.allocator);
             result = .{
                 .start = split,
                 .outs = merged,
@@ -684,22 +702,24 @@ const Compiler = struct {
 
         var copies: std.ArrayList(Fragment) = .empty;
         defer copies.deinit(self.allocator);
+        defer for (copies.items) |*fragment| fragment.outs.deinit(self.allocator);
 
         var i: u32 = 0;
         while (i < quantifier.min) : (i += 1) {
-            try copies.append(self.allocator, try self.compileNode(compiled_hir, child));
+            var fragment = try self.compileNode(compiled_hir, child);
+            errdefer fragment.outs.deinit(self.allocator);
+            try copies.append(self.allocator, fragment);
         }
 
         var result = if (copies.items.len == 0)
             try self.compileEmpty()
         else
             copies.swapRemove(0);
-        defer {
-            for (copies.items) |*fragment| fragment.outs.deinit(self.allocator);
-        }
+        errdefer result.outs.deinit(self.allocator);
 
         while (copies.items.len > 0) {
-            const next = copies.swapRemove(0);
+            var next = copies.swapRemove(0);
+            errdefer next.outs.deinit(self.allocator);
             try self.patch(result.outs.items, next.start);
             result.outs.deinit(self.allocator);
             result.outs = next.outs;
@@ -708,7 +728,8 @@ const Compiler = struct {
         if (quantifier.max) |upper| {
             var optional_count = upper - quantifier.min;
             while (optional_count > 0) : (optional_count -= 1) {
-                const optional_fragment = try self.compileOptional(compiled_hir, child, quantifier.greedy);
+                var optional_fragment = try self.compileOptional(compiled_hir, child, quantifier.greedy);
+                errdefer optional_fragment.outs.deinit(self.allocator);
                 try self.patch(result.outs.items, optional_fragment.start);
                 result.outs.deinit(self.allocator);
                 result.outs = optional_fragment.outs;
@@ -717,11 +738,13 @@ const Compiler = struct {
         }
 
         if (quantifier.min == 0) {
+            const star = try self.compileStar(compiled_hir, child, quantifier.greedy);
             result.outs.deinit(self.allocator);
-            return self.compileStar(compiled_hir, child, quantifier.greedy);
+            return star;
         }
 
-        const tail = try self.compileStar(compiled_hir, child, quantifier.greedy);
+        var tail = try self.compileStar(compiled_hir, child, quantifier.greedy);
+        errdefer tail.outs.deinit(self.allocator);
         try self.patch(result.outs.items, tail.start);
         result.outs.deinit(self.allocator);
         result.outs = tail.outs;
@@ -730,12 +753,12 @@ const Compiler = struct {
 
     fn compileStar(self: *Compiler, compiled_hir: hir_mod.Hir, child: hir_mod.NodeId, greedy: bool) CompileError!Fragment {
         var body = try self.compileNode(compiled_hir, child);
+        defer body.outs.deinit(self.allocator);
         const split = try self.emit(.{ .split = .{
             .out = if (greedy) body.start else null,
             .out1 = if (greedy) null else body.start,
         } });
         try self.patch(body.outs.items, split);
-        body.outs.deinit(self.allocator);
 
         var outs: std.ArrayList(PatchRef) = .empty;
         try outs.append(self.allocator, .{ .inst = split, .slot = if (greedy) .out1 else .out });
@@ -744,6 +767,7 @@ const Compiler = struct {
 
     fn compileOptional(self: *Compiler, compiled_hir: hir_mod.Hir, child: hir_mod.NodeId, greedy: bool) CompileError!Fragment {
         var body = try self.compileNode(compiled_hir, child);
+        defer body.outs.deinit(self.allocator);
         const split = try self.emit(.{ .split = .{
             .out = if (greedy) body.start else null,
             .out1 = if (greedy) null else body.start,
@@ -754,11 +778,11 @@ const Compiler = struct {
         try outs.appendSlice(self.allocator, body.outs.items);
         try outs.append(self.allocator, .{ .inst = split, .slot = if (greedy) .out1 else .out });
 
-        body.outs.deinit(self.allocator);
         return .{ .start = split, .outs = outs };
     }
 
     fn emit(self: *Compiler, inst: Inst) CompileError!InstPtr {
+        errdefer deinitInstruction(self.allocator, inst);
         if (self.options.max_instructions) |limit| {
             if (self.instructions.items.len >= limit) return error.ProgramTooLarge;
         }
