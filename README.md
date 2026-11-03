@@ -75,7 +75,8 @@ zig build test --summary all
 zig build test -Doptimize=ReleaseSafe --summary all
 ```
 
-`test` runs the original core regressions through the package root. `check`
+`test` runs the original core regressions, rejected-syntax cleanup and allocation
+failure checks through the package root. `check`
 compiles the native example and a freestanding Wasm caller, installing the
 latter at `zig-out/bin/regex-check.wasm`; its `regexAcceptance()` export returns
 zero on success. Compilation alone does not establish target runtime support.
