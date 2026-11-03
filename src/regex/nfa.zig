@@ -1,4 +1,5 @@
 const std = @import("std");
+const compat = @import("../compat.zig");
 const hir_mod = @import("hir.zig");
 const literal_mod = @import("literal.zig");
 const unicode = @import("unicode.zig");
@@ -201,7 +202,7 @@ pub fn compile(allocator: std.mem.Allocator, compiled_hir: hir_mod.Hir, options:
 }
 
 fn hirHasScopedLineModes(compiled_hir: hir_mod.Hir, node_id: hir_mod.NodeId) bool {
-    return switch (compiled_hir.nodes[@backingInt(node_id)]) {
+    return switch (compiled_hir.nodes[compat.backingInt(node_id)]) {
         .dot => |dot| dot.matches_newline != null,
         .anchor_start => |anchor| anchor.multiline,
         .anchor_end => |anchor| anchor.multiline,
@@ -225,7 +226,7 @@ fn hirHasScopedLineModes(compiled_hir: hir_mod.Hir, node_id: hir_mod.NodeId) boo
 }
 
 fn instructionCount(compiled_hir: hir_mod.Hir, node_id: hir_mod.NodeId, limit: usize) ?usize {
-    return switch (compiled_hir.nodes[@backingInt(node_id)]) {
+    return switch (compiled_hir.nodes[compat.backingInt(node_id)]) {
         .empty,
         .literal,
         .dot,
@@ -314,7 +315,7 @@ fn multiplyInstructionCounts(a: usize, b: usize, limit: usize) ?usize {
 }
 
 fn hirCanMatchNewline(compiled_hir: hir_mod.Hir, node_id: hir_mod.NodeId, multiline: bool, dotall: bool) bool {
-    return switch (compiled_hir.nodes[@backingInt(node_id)]) {
+    return switch (compiled_hir.nodes[compat.backingInt(node_id)]) {
         .empty, .anchor_start, .anchor_end, .word_boundary, .not_word_boundary, .word_boundary_start_half, .word_boundary_end_half => false,
         .unicode_property => |property| !property.negated and switch (property.property) {
             .whitespace => true,
@@ -434,7 +435,7 @@ const Compiler = struct {
     options: CompileOptions,
 
     fn compileNode(self: *Compiler, compiled_hir: hir_mod.Hir, node_id: hir_mod.NodeId) CompileError!Fragment {
-        return switch (compiled_hir.nodes[@backingInt(node_id)]) {
+        return switch (compiled_hir.nodes[compat.backingInt(node_id)]) {
             .empty => self.compileEmpty(),
             .literal => |cp| self.compileLiteral(cp),
             .dot => |dot| self.compileAny(dot.matches_newline orelse self.options.multiline_dotall),
@@ -590,7 +591,7 @@ const Compiler = struct {
         const expr = try self.allocator.create(CompiledClassExpr);
         errdefer self.allocator.destroy(expr);
 
-        switch (compiled_hir.nodes[@backingInt(node_id)]) {
+        switch (compiled_hir.nodes[compat.backingInt(node_id)]) {
             .char_class => |class| {
                 const items = try self.allocator.alloc(hir_mod.ClassItem, class.items.len);
                 @memcpy(items, class.items);

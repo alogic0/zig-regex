@@ -31,9 +31,12 @@ Comparison with the other inventoried copies found:
   observed parser/HIR/Unicode differences are enum-conversion spellings.
 - Generated Unicode-table differences are formatting changes in empty arrays.
 
-The initial package targets the pinned Zig 0.17.0 toolchain. Migrating the
-0.15.2 CLI requires separate compatibility work; adding this provider does not
-silently migrate that compiler or change existing consumers' matching semantics.
+The initial package targeted the pinned Zig 0.17.0 toolchain. Version 0.2.0
+also qualifies the pure core on Zig 0.15.2 so a consumer can retain its existing
+CLI/IO toolchain. `compat.zig` isolates enum-conversion aliases understood by
+both compilers; its narrow formatter guard prevents the default formatter from
+renaming them into 0.17-only syntax. No application or runtime dependency is
+introduced. The native example uses an explicit allocator and portable entrypoint.
 The optional SIMD prefilter remains disabled, matching the extraction source.
 
 ## Maintenance surface

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0 — 2026-11-03
+
+- Qualify the pure regex core on Zig 0.15.2 alongside the default Zig 0.17.0,
+  using portable enum-conversion aliases and retaining consumer-owned CLI/IO.
+- Exercise native, Wasm and independent package callers on both compilers.
+
 ## 0.1.0 — 2026-11-03
 
 - Extract the allocator-owned parser/HIR/NFA/VM/DFA and Unicode tables into an

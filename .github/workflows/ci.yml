@@ -14,33 +14,33 @@ concurrency:
 
 jobs:
   test:
-    name: Linux and Wasm (${{ matrix.optimize }})
+    name: Zig ${{ matrix.zig }} Linux and Wasm (${{ matrix.optimize }})
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
+        zig: ['0.15.2', '0.17.0']
         optimize: [Debug, ReleaseSafe]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Read pinned Zig version
-        id: zig-version
-        run: echo "version=$(cat .zigversion)" >> "$GITHUB_OUTPUT"
       - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
         with:
-          version: ${{ steps.zig-version.outputs.version }}
-          cache-key: regex-${{ matrix.optimize }}
+          version: ${{ matrix.zig }}
+          cache-key: regex-${{ matrix.zig }}-${{ matrix.optimize }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-      - name: Verify compiler and formatting
+      - name: Verify compiler and host script syntax
         run: |
-          test "$(zig version)" = "$(cat .zigversion)"
-          zig fmt --check build.zig build.zig.zon src examples tests
+          test "$(zig version)" = "${{ matrix.zig }}"
           node --check tests/run-wasm.mjs
           sh -n tools/prepare-release.sh
+      - name: Check default compiler formatting
+        if: matrix.zig == '0.17.0' && matrix.optimize == 'Debug'
+        run: zig fmt --check build.zig build.zig.zon src examples tests
       - name: Run native and Wasm checks
         run: zig build test check example test-wasm -Doptimize=${{ matrix.optimize }} --summary all
       - name: Check independent package caller

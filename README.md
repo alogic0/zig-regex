@@ -1,7 +1,8 @@
 # zig-regex
 
-Allocator-owned regular expressions for Zig **0.17.0**, with Unicode properties,
-simple case folding, captures and byte offsets. Version **0.1.0**. The package
+Allocator-owned regular expressions for Zig **0.17.0** and **0.15.2**, with Unicode
+properties, simple case folding, captures and byte offsets. Version **0.2.0**.
+The package
 exports one module, `regex`, and has no package, C-library or IO dependencies.
 Generated Unicode data is included; normal builds do not download anything.
 
@@ -11,7 +12,7 @@ For a shared dependency, verify the release archive against `SHA256SUMS`, copy i
 to your project's `vendor/` directory, and run from your project root:
 
 ```sh
-zig fetch --save-exact=regex file:vendor/zig-regex-0.1.0.tar.gz
+zig fetch --save-exact=regex file:vendor/zig-regex-0.2.0.tar.gz
 ```
 
 This records an immutable archive URL and Zig package hash in `build.zig.zon`.
@@ -74,7 +75,8 @@ and workload limits. See [DESIGN.md](DESIGN.md) for ownership and compatibility.
 
 ## Check
 
-Use the compiler in [`.zigversion`](.zigversion):
+Use the default compiler in [`.zigversion`](.zigversion). Repeat with the exact
+Zig 0.15.2 executable when checking its supported compatibility boundary:
 
 ```sh
 zig build test check example --summary all
@@ -96,8 +98,9 @@ zero on success. Compilation alone does not establish target runtime support.
 dependency and is not required to compile or use the library.
 The isolated package caller checks that users need no private source imports.
 
-The initial qualification target is Linux x86_64 and freestanding Wasm. Other
-native platforms and Zig 0.15/0.16 remain unqualified. See [NOTICE](NOTICE) for
+The qualification targets are Linux x86_64 and freestanding Wasm on Zig 0.15.2
+and 0.17.0. Other native platforms and Zig 0.16 remain unqualified.
+See [NOTICE](NOTICE) for
 source provenance. Code uses [MIT](LICENSE); generated Unicode data uses
 [Unicode License V3](UNICODE-LICENSE).
 

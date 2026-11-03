@@ -22,7 +22,11 @@ zig build test --summary all
 zig build test -Doptimize=ReleaseSafe --summary all
 ```
 
+Repeat the provider, Wasm and package checks with the exact Zig 0.15.2 executable
+for changes in the compatibility core. The default formatter remains 0.17.0;
+preserve the narrow enum-alias formatter guard in `src/compat.zig`.
 Wasm execution uses Node.js 18 or newer. Compiler-only `check` needs no Node.
 Keep fixes separate from source moves and new syntax. The initial qualified
-targets are Linux x86_64 and freestanding Wasm; additional platforms need actual
+targets are Linux x86_64 and freestanding Wasm on both qualified compilers;
+additional platforms need actual
 target runtime evidence. Release preparation is described in `RELEASING.md`.
