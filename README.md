@@ -12,12 +12,16 @@ For a shared dependency, verify the release archive against `SHA256SUMS`, copy i
 to your project's `vendor/` directory, and run from your project root:
 
 ```sh
-zig fetch --save-exact=regex file:vendor/zig-regex-0.2.0.tar.gz
+zig fetch vendor/zig-regex-0.2.0.tar.gz
 ```
 
-This records an immutable archive URL and Zig package hash in `build.zig.zon`.
-The generated `PACKAGE_INFO.txt` also records the source revision and package
-hash. Local development can use `.regex = .{ .path = "../zig-regex" }` instead.
+Compare the printed hash with `PACKAGE_INFO.txt`, which also records the source
+revision. Add a `.regex` entry to `build.zig.zon` dependencies with
+`.url = "file:vendor/zig-regex-0.2.0.tar.gz"` and `.hash` set to that verified
+hash. Use a filesystem path for the fetch command: relative `file:` URLs resolve
+correctly in dependency manifests, but direct fetch handling differs between
+the qualified compilers. Commit the archive and manifest together.
+Local development can use `.regex = .{ .path = "../zig-regex" }` instead.
 Wire the public module into your build:
 
 ```zig

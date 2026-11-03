@@ -8,6 +8,9 @@
 - Expose the inherited SIMD literal prefilter as a per-compilation opt-in,
   retaining the disabled default and keeping application build options outside
   the library.
+- Use filesystem paths in the archive-fetch instructions; retain relative
+  `file:` URLs in dependency manifests and verify consumer builds from an empty
+  global cache.
 
 ## 0.1.0 — 2026-11-03
 

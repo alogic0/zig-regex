@@ -38,9 +38,12 @@ must agree. A GitHub repository/remote and public release can be selected later;
 preparation and CI do not create a remote, push a tag or publish a release.
 
 Recipients can verify `sha256sum --check SHA256SUMS`, copy the archive into their
-own `vendor/` directory and run the `zig fetch --save-exact=regex file:vendor/...`
-command in `README.md`. They should compare the generated package hash with
-`PACKAGE_INFO.txt` and commit the archive and manifest together. A hosted URL may
+own `vendor/` directory and run `zig fetch vendor/zig-regex-VERSION.tar.gz`.
+Compare the printed hash with `PACKAGE_INFO.txt`, then follow `README.md` to add
+the manifest's relative `file:` URL and verified hash. The fetch command takes a
+filesystem path; direct relative `file:` fetch handling differs between the
+qualified compilers. Verify the actual consumer build with an empty global
+cache, then commit the archive and manifest together. A hosted URL may
 replace the `file:` URL once those exact bytes are available at an immutable
 location. The Zig hash remains the same for the same admitted package files.
 
