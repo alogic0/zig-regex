@@ -1,0 +1,15 @@
+# Changelog
+
+## 0.1.0 — 2026-11-03
+
+- Extract the allocator-owned parser/HIR/NFA/VM/DFA and Unicode tables into an
+  independent Zig 0.17.0 package with the public `regex` module.
+- Preserve captures, byte offsets, raw-byte matching, instruction admission and
+  scoped case modes; keep search/replacement and IO policy with consumers.
+- Repair inherited partial-construction and allocation-failure cleanup, including
+  named captures, scoped folding, NFA/VM state and literal prefilters.
+- Honor inline `(?i)` with the global case-folding default off while preserving
+  nested disabling scopes and ordinary literal-prefilter behavior.
+- Include native and freestanding Wasm callers, an independent package fixture,
+  Debug/ReleaseSafe CI and reproducible source-distribution tooling.
+- Retain the original MIT and Unicode notices and extraction provenance.

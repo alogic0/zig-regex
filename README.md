@@ -7,7 +7,17 @@ Generated Unicode data is included; normal builds do not download anything.
 
 ## Use
 
-Add `.regex = .{ .path = "../zig-regex" }` to your package dependencies, then:
+For a shared dependency, verify the release archive against `SHA256SUMS`, copy it
+to your project's `vendor/` directory, and run from your project root:
+
+```sh
+zig fetch --save-exact=regex file:vendor/zig-regex-0.1.0.tar.gz
+```
+
+This records an immutable archive URL and Zig package hash in `build.zig.zon`.
+The generated `PACKAGE_INFO.txt` also records the source revision and package
+hash. Local development can use `.regex = .{ .path = "../zig-regex" }` instead.
+Wire the public module into your build:
 
 ```zig
 const regex = b.dependency("regex", .{ .target = target, .optimize = optimize });
@@ -69,6 +79,8 @@ Use the compiler in [`.zigversion`](.zigversion):
 ```sh
 zig build test check example --summary all
 zig build test check example -Doptimize=ReleaseSafe --summary all
+zig build test-wasm --summary all
+zig build test-wasm -Doptimize=ReleaseSafe --summary all
 zig build test -Dtest-filter=Unicode --summary all
 cd tests/package
 zig build test --summary all
@@ -80,9 +92,16 @@ failure checks through the package root. `check`
 compiles the native example and a freestanding Wasm caller, installing the
 latter at `zig-out/bin/regex-check.wasm`; its `regexAcceptance()` export returns
 zero on success. Compilation alone does not establish target runtime support.
+`test-wasm` executes that export using Node.js (18 or newer); Node is a test-host
+dependency and is not required to compile or use the library.
 The isolated package caller checks that users need no private source imports.
 
 The initial qualification target is Linux x86_64 and freestanding Wasm. Other
 native platforms and Zig 0.15/0.16 remain unqualified. See [NOTICE](NOTICE) for
 source provenance. Code uses [MIT](LICENSE); generated Unicode data uses
 [Unicode License V3](UNICODE-LICENSE).
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for ownership/regression expectations and
+[RELEASING.md](RELEASING.md) for reproducible source distribution. CI checks
+Debug/ReleaseSafe, native and Wasm callers, and the actual source archive before
+retaining distribution artifacts. Publication is a separate maintainer action.

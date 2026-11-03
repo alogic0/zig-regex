@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Linux and Wasm (${{ matrix.optimize }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        optimize: [Debug, ReleaseSafe]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read pinned Zig version
+        id: zig-version
+        run: echo "version=$(cat .zigversion)" >> "$GITHUB_OUTPUT"
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: ${{ steps.zig-version.outputs.version }}
+          cache-key: regex-${{ matrix.optimize }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Verify compiler and formatting
+        run: |
+          test "$(zig version)" = "$(cat .zigversion)"
+          zig fmt --check build.zig build.zig.zon src examples tests
+          node --check tests/run-wasm.mjs
+          sh -n tools/prepare-release.sh
+      - name: Run native and Wasm checks
+        run: zig build test check example test-wasm -Doptimize=${{ matrix.optimize }} --summary all
+      - name: Check independent package caller
+        working-directory: tests/package
+        run: zig build test -Doptimize=${{ matrix.optimize }} --summary all
+
+  package:
+    name: Verify source distribution
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read pinned Zig version
+        id: zig-version
+        run: echo "version=$(cat .zigversion)" >> "$GITHUB_OUTPUT"
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: ${{ steps.zig-version.outputs.version }}
+          cache-key: regex-distribution
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Prepare reproducible archive
+        run: |
+          ./tools/prepare-release.sh
+          cp zig-out/dist/SHA256SUMS "$RUNNER_TEMP/regex-SHA256SUMS"
+          ./tools/prepare-release.sh
+          (cd zig-out/dist && sha256sum --check "$RUNNER_TEMP/regex-SHA256SUMS")
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=$(sed -n 's/^version=//p' zig-out/dist/PACKAGE_INFO.txt)
+            test "$GITHUB_REF_NAME" = "v$version"
+          fi
+      - name: Verify archived sources without a sibling checkout
+        run: |
+          archive=$(find "$GITHUB_WORKSPACE/zig-out/dist" -maxdepth 1 -name 'zig-regex-*.tar.gz' -print)
+          mkdir "$RUNNER_TEMP/regex-source"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/regex-source"
+          cd "$RUNNER_TEMP/regex-source"
+          test -s LICENSE
+          test -s UNICODE-LICENSE
+          test -s NOTICE
+          for optimize in Debug ReleaseSafe; do
+            zig build test check example test-wasm -Doptimize="$optimize" --summary all
+            (cd tests/package && zig build test -Doptimize="$optimize" --summary all)
+          done
+      - name: Retain verified distribution
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: zig-regex-source-${{ github.sha }}
+          path: zig-out/dist/
+          if-no-files-found: error

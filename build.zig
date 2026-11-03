@@ -52,4 +52,10 @@ pub fn build(b: *std.Build) void {
     const check = b.step("check", "Compile the native example and freestanding Wasm caller");
     check.dependOn(&example.step);
     check.dependOn(&install_wasm.step);
+
+    const run_wasm = b.addSystemCommand(&.{"node"});
+    run_wasm.addFileArg(b.path("tests/run-wasm.mjs"));
+    run_wasm.addFileArg(wasm.getEmittedBin());
+    run_wasm.has_side_effects = true;
+    b.step("test-wasm", "Execute the freestanding Wasm public API check in Node.js").dependOn(&run_wasm.step);
 }
