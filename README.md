@@ -68,6 +68,11 @@ folding and an optional instruction limit. Newline-matching patterns require
 scope choices remain in the parsed expression. The lower-level `compile` only
 parses/lowers to owned HIR; its options do not apply the global compile settings.
 
+The optional `.simd_prefilter = true` compilation setting enables the inherited
+single-byte literal scan on supported native architectures. It defaults to false
+and is stored per compiled program; there is no application build option or
+global switch inside the package. Other targets use the generic scan.
+
 `max_instructions` bounds emitted NFA instructions and rejects oversized counted
 repetition before expansion. It does not bound pattern bytes, parser nesting,
 haystack size or total matching time. Consumers must choose their own admission

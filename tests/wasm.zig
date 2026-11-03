@@ -13,5 +13,8 @@ export fn regexAcceptance() u32 {
     if (found.span.start != 0 or found.span.end != 7 or found.groups.len != 2) return 4;
     if (found.groups[0].start != 0 or found.groups[0].end != 4) return 5;
     if (!(compiled.isMatch("σ-7") catch return 6)) return 7;
+    var selected = regex.compileRe(allocator, "x", .{ .simd_prefilter = true }) catch return 8;
+    defer selected.deinit();
+    if (!(selected.isMatch("aaaaaaaaaaaaaaaaax") catch return 9)) return 10;
     return 0;
 }

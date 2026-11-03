@@ -5,6 +5,9 @@
 - Qualify the pure regex core on Zig 0.15.2 alongside the default Zig 0.17.0,
   using portable enum-conversion aliases and retaining consumer-owned CLI/IO.
 - Exercise native, Wasm and independent package callers on both compilers.
+- Expose the inherited SIMD literal prefilter as a per-compilation opt-in,
+  retaining the disabled default and keeping application build options outside
+  the library.
 
 ## 0.1.0 — 2026-11-03
 

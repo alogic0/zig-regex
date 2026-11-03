@@ -13,4 +13,8 @@ test "package import preserves byte spans, captures and instruction admission" {
     try std.testing.expectError(error.ProgramTooLarge, regex.compileRe(std.testing.allocator, "a{5000}", .{
         .max_instructions = 4096,
     }));
+    var selected = try regex.compileRe(std.testing.allocator, "x", .{ .simd_prefilter = true });
+    defer selected.deinit();
+    try std.testing.expect(selected.program.prefilter.?.simd_prefilter);
+    try std.testing.expect(try selected.isMatch("aaaaaaaaaaaaaaaaax"));
 }

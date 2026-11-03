@@ -17,6 +17,7 @@ test "public API releases partial compilation and matching on allocation failure
         .{ .pattern = "(?:ab){0,3}(c)?", .text = "ababc" },
         .{ .pattern = "[\\p{Greek}&&\\p{Uppercase}]+", .text = "ΣΣ" },
         .{ .pattern = "([^a]+)", .text = "\xffΣ", .raw_bytes = true },
+        .{ .pattern = "x", .text = "x", .simd_prefilter = true },
     }) |case| {
         try std.testing.checkAllAllocationFailures(std.testing.allocator, compileMatchCase, .{case});
     }
@@ -34,10 +35,10 @@ fn compileAndMatch(allocator: std.mem.Allocator) !void {
     try std.testing.expectEqual(regex.vm.Capture{ .start = 0, .end = 7 }, found.span);
 }
 
-const MatchCase = struct { pattern: []const u8, text: []const u8, raw_bytes: bool = false };
+const MatchCase = struct { pattern: []const u8, text: []const u8, raw_bytes: bool = false, simd_prefilter: bool = false };
 
 fn compileMatchCase(allocator: std.mem.Allocator, case: MatchCase) !void {
-    var compiled = try regex.compileRe(allocator, case.pattern, .{ .max_instructions = 4096 });
+    var compiled = try regex.compileRe(allocator, case.pattern, .{ .max_instructions = 4096, .simd_prefilter = case.simd_prefilter });
     defer compiled.deinit();
     const found = (if (case.raw_bytes)
         try compiled.firstMatchBytes(case.text)
@@ -76,4 +77,15 @@ test "public API honors inline case folding with either global default" {
     defer disabled.deinit();
     try std.testing.expect(try disabled.isMatch("cat"));
     try std.testing.expect(!try disabled.isMatch("CAT"));
+}
+
+test "public compilation retains the opt-in prefilter choice without global state" {
+    var selected = try regex.compileRe(std.testing.allocator, "x", .{ .simd_prefilter = true });
+    defer selected.deinit();
+    var default = try regex.compileRe(std.testing.allocator, "x", .{});
+    defer default.deinit();
+    try std.testing.expect(selected.program.prefilter.?.simd_prefilter);
+    try std.testing.expect(!default.program.prefilter.?.simd_prefilter);
+    try std.testing.expect(try selected.isMatch("aaaaaaaaaaaaaaaaax"));
+    try std.testing.expect(!try selected.isMatch("aaaaaaaaaaaaaaaaaa"));
 }

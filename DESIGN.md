@@ -37,7 +37,12 @@ CLI/IO toolchain. `compat.zig` isolates enum-conversion aliases understood by
 both compilers; its narrow formatter guard prevents the default formatter from
 renaming them into 0.17-only syntax. No application or runtime dependency is
 introduced. The native example uses an explicit allocator and portable entrypoint.
-The optional SIMD prefilter remains disabled, matching the extraction source.
+The optional SIMD prefilter remains disabled by default, matching the extraction
+source. A per-compilation `simd_prefilter` choice preserves an existing caller's
+opt-in behavior without importing application build options into the provider.
+It is retained on the owned prefilter and passed through both public compilation
+and the low-level NFA options. Native vector and tail boundaries have equivalent
+generic/opt-in tests; other target architectures keep the generic path.
 
 ## Maintenance surface
 

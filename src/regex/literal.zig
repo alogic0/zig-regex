@@ -1,14 +1,13 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
-const simd_prefilter = false;
-
 pub const LiteralSequence = struct {
     bytes: []const u8 = "",
 };
 
 pub const Prefilter = struct {
     required: []const LiteralSequence,
+    simd_prefilter: bool = false,
 
     pub fn deinit(self: Prefilter, allocator: std.mem.Allocator) void {
         for (self.required) |literal| allocator.free(literal.bytes);
@@ -20,7 +19,7 @@ pub const Prefilter = struct {
 
         for (self.required) |literal| {
             if (literal.bytes.len == 0) continue;
-            if (containsLiteral(haystack, literal.bytes)) return true;
+            if (containsLiteral(.{ .haystack = haystack, .needle = literal.bytes, .simd_prefilter = self.simd_prefilter })) return true;
         }
         return false;
     }
@@ -58,17 +57,17 @@ pub fn duplicatePrefilter(
     return .{ .required = duped };
 }
 
-fn containsLiteral(haystack: []const u8, needle: []const u8) bool {
+fn containsLiteral(input: struct { haystack: []const u8, needle: []const u8, simd_prefilter: bool = false }) bool {
+    const haystack = input.haystack;
+    const needle = input.needle;
     if (needle.len == 0) return true;
-    if (needle.len == 1 and shouldUseSimdByteScan()) {
+    if (input.simd_prefilter and needle.len == 1 and shouldUseSimdByteScan()) {
         return simdContainsByte(haystack, needle[0]);
     }
     return std.mem.indexOf(u8, haystack, needle) != null;
 }
 
 fn shouldUseSimdByteScan() bool {
-    if (!simd_prefilter) return false;
-
     return switch (builtin.cpu.arch) {
         .x86_64, .x86, .aarch64, .arm => true,
         else => false,
@@ -109,9 +108,26 @@ test "Prefilter accepts haystacks containing a required literal" {
 test "Prefilter single-byte scanning matches the generic path" {
     const testing = std.testing;
 
-    try testing.expect(containsLiteral("abcxyz", "x"));
-    try testing.expect(!containsLiteral("abcxyz", "q"));
-    try testing.expect(containsLiteral("abcxyz", "xyz"));
+    try testing.expect(containsLiteral(.{ .haystack = "abcxyz", .needle = "x" }));
+    try testing.expect(!containsLiteral(.{ .haystack = "abcxyz", .needle = "q" }));
+    try testing.expect(containsLiteral(.{ .haystack = "abcxyz", .needle = "xyz" }));
+}
+
+test "opt-in single-byte prefilters preserve matches at vector and tail boundaries" {
+    var storage: [65]u8 = @splat('a');
+    for ([_]usize{ 0, 1, 15, 16, 17, 31, 32, 33, 64, 65 }) |length| {
+        const text = storage[0..length];
+        for ([_]bool{ false, true }) |enabled| {
+            const prefilter = Prefilter{ .required = &.{.{ .bytes = "z" }}, .simd_prefilter = enabled };
+            try std.testing.expect(!prefilter.mayMatch(text));
+            if (length == 0) continue;
+            for ([_]usize{ 0, length / 2, length - 1 }) |position| {
+                text[position] = 'z';
+                try std.testing.expect(prefilter.mayMatch(text));
+                text[position] = 'a';
+            }
+        }
+    }
 }
 
 test "duplicatePrefilter copies literal bytes" {

@@ -31,6 +31,7 @@ pub const CompileOptions = struct {
     multiline_dotall: bool = false,
     case_insensitive: bool = false,
     max_instructions: ?usize = null,
+    simd_prefilter: bool = false,
 };
 
 pub const Compiled = struct {
@@ -51,6 +52,7 @@ pub const Compiled = struct {
             .multiline = options.multiline,
             .multiline_dotall = options.multiline_dotall,
             .max_instructions = options.max_instructions,
+            .simd_prefilter = options.simd_prefilter,
         });
 
         return .{

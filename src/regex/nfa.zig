@@ -140,6 +140,7 @@ pub const CompileOptions = struct {
     multiline: bool = false,
     multiline_dotall: bool = false,
     max_instructions: ?usize = null,
+    simd_prefilter: bool = false,
 };
 
 const Fragment = struct {
@@ -181,8 +182,9 @@ pub fn compile(allocator: std.mem.Allocator, compiled_hir: hir_mod.Hir, options:
         .out = fragment.start,
     } });
 
-    const prefilter = try literal_mod.duplicatePrefilter(allocator, compiled_hir.literals);
+    var prefilter = try literal_mod.duplicatePrefilter(allocator, compiled_hir.literals);
     errdefer if (prefilter) |value| value.deinit(allocator);
+    if (prefilter) |*value| value.simd_prefilter = options.simd_prefilter;
     const ascii_only = isAsciiOnly(compiler.instructions.items);
     const has_word_boundary = hasWordBoundary(compiler.instructions.items);
     const has_unicode_property = hasUnicodeProperty(compiler.instructions.items);
