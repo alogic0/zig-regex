@@ -56,6 +56,12 @@ union tag. Fault injection covers every allocation in named/unnamed capture,
 case-fold, literal/DFA, bounded repetition, class-set and raw-byte scenarios.
 These error-path repairs are kept in a separate commit from the extraction.
 
+A public-API regression also exposed that inline `(?i)` was ignored when global
+case folding was off. Compilation now runs scoped folding when an inline group
+enables it, using the global option only as the initial default. Patterns with
+neither global nor inline folding keep their existing literal-prefilter path.
+This semantic correction has its own provider and consumer regression tests.
+
 ## Unicode data
 
 `src/regex/unicode_props_generated.zig` contains the inherited checked-in tables.

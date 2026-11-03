@@ -13,6 +13,7 @@ test "public API releases partial compilation and matching on allocation failure
     try std.testing.checkAllAllocationFailures(std.testing.allocator, compileAndMatch, .{});
     for ([_]MatchCase{
         .{ .pattern = "needle", .text = "needle" },
+        .{ .pattern = "(?i)(ab)+", .text = "ABAB" },
         .{ .pattern = "(?:ab){0,3}(c)?", .text = "ababc" },
         .{ .pattern = "[\\p{Greek}&&\\p{Uppercase}]+", .text = "ΣΣ" },
         .{ .pattern = "([^a]+)", .text = "\xffΣ", .raw_bytes = true },
@@ -63,4 +64,16 @@ fn duplicatePrefilters(allocator: std.mem.Allocator) !void {
     })).?;
     defer prefilter.deinit(allocator);
     try std.testing.expect(prefilter.mayMatch("second"));
+}
+
+test "public API honors inline case folding with either global default" {
+    var enabled = try regex.compileRe(std.testing.allocator, "(?i)^cat(?-i:Dog)$", .{});
+    defer enabled.deinit();
+    try std.testing.expect(try enabled.isMatch("CATDog"));
+    try std.testing.expect(!try enabled.isMatch("CATDOG"));
+
+    var disabled = try regex.compileRe(std.testing.allocator, "(?-i)^cat$", .{ .case_insensitive = true });
+    defer disabled.deinit();
+    try std.testing.expect(try disabled.isMatch("cat"));
+    try std.testing.expect(!try disabled.isMatch("CAT"));
 }

@@ -2,8 +2,7 @@ const std = @import("std");
 const regex = @import("regex");
 
 test "package import preserves byte spans, captures and instruction admission" {
-    var compiled = try regex.compileRe(std.testing.allocator, "(σ+)", .{
-        .case_insensitive = true,
+    var compiled = try regex.compileRe(std.testing.allocator, "(?i)(σ+)", .{
         .max_instructions = 4096,
     });
     defer compiled.deinit();

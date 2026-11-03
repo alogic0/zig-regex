@@ -4,8 +4,7 @@ const regex = @import("regex");
 /// Returns zero when the freestanding target exercises the public API correctly.
 export fn regexAcceptance() u32 {
     const allocator = std.heap.wasm_allocator;
-    var compiled = regex.compileRe(allocator, "(σ+)-([0-9]+)", .{
-        .case_insensitive = true,
+    var compiled = regex.compileRe(allocator, "(?i)(σ+)-([0-9]+)", .{
         .max_instructions = 4096,
     }) catch return 1;
     defer compiled.deinit();

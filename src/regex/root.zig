@@ -42,7 +42,10 @@ pub const Compiled = struct {
     pub fn init(allocator: std.mem.Allocator, pattern: []const u8, options: CompileOptions) (ParseError || Nfa.CompileError || hir.CaseFoldError)!Compiled {
         var compiled_hir = try compile(allocator, pattern, options);
         errdefer compiled_hir.deinit(allocator);
-        if (options.case_insensitive) try hir.applySimpleCaseFold(allocator, &compiled_hir);
+        const fold_case = options.case_insensitive or for (compiled_hir.nodes) |node| {
+            if (node == .case_fold_group and node.case_fold_group.enabled) break true;
+        } else false;
+        if (fold_case) try hir.applyScopedCaseFold(allocator, &compiled_hir, options.case_insensitive);
 
         const program = try Nfa.compile(allocator, compiled_hir, .{
             .multiline = options.multiline,
