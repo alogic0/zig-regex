@@ -1,0 +1,15 @@
+zig-regex contains regex code originally maintained in zigrep and an extracted
+MIT-licensed subtree from Zig Markdown Viewer. Original copyright notices are
+retained in LICENSE.
+
+Extraction source: Zig Markdown Viewer
+  commit 3ed583ed97c2ab77a3bcff95361d49c86b0e5f5f
+  src/zigrep_regex (13 Zig files, including generated Unicode tables)
+
+Related original provider: zigrep
+  commit bcd812c9a1e7fe51d2eff5fa345f0ed420cde8c0
+
+The generated Unicode tables derive from the Unicode Character Database,
+through zg (https://codeberg.org/atman/zg), source revision
+6ee2b0719052040c979ecde02a74a0cee6253364. Unicode's copyright and permission
+notice is included verbatim in UNICODE-LICENSE.

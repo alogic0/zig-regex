@@ -1,0 +1,1354 @@
+const std = @import("std");
+const reader = @import("../reader.zig");
+const dfa = @import("dfa.zig");
+const nfa = @import("nfa.zig");
+const unicode = @import("unicode.zig");
+
+pub const MatchError = reader.ReaderError || error{
+    OutOfMemory,
+};
+
+pub const Capture = struct {
+    start: ?usize = null,
+    end: ?usize = null,
+};
+
+pub const Match = struct {
+    span: Capture,
+    groups: []Capture,
+
+    pub fn deinit(self: Match, allocator: std.mem.Allocator) void {
+        allocator.free(self.groups);
+    }
+};
+
+const Thread = struct {
+    inst_ptr: nfa.InstPtr,
+    slots: []?usize,
+};
+
+const TextUnit = struct {
+    scalar: ?u32,
+    invalid_byte: ?u8,
+    end: usize,
+
+    fn isNewline(self: TextUnit) bool {
+        return self.scalar != null and self.scalar.? == '\n';
+    }
+};
+
+pub const MatchEngine = struct {
+    allocator: std.mem.Allocator,
+
+    pub fn init(allocator: std.mem.Allocator) MatchEngine {
+        return .{ .allocator = allocator };
+    }
+
+    pub fn isMatch(self: *const MatchEngine, program: nfa.Program, haystack: []const u8) MatchError!bool {
+        if (canUseLazyDfa(program)) {
+            var cache = dfa.Cache.init(self.allocator, &program);
+            defer cache.deinit();
+            return cache.isMatch(haystack);
+        }
+
+        const found = try self.firstMatch(program, haystack);
+        if (found) |match| {
+            match.deinit(self.allocator);
+            return true;
+        }
+        return false;
+    }
+
+    pub fn firstMatch(self: *const MatchEngine, program: nfa.Program, haystack: []const u8) MatchError!?Match {
+        if (program.instructions.len == 0) return null;
+        if (program.prefilter) |prefilter| {
+            if (!prefilter.mayMatch(haystack)) return null;
+        }
+        if (program.ascii_only and isAsciiBytes(haystack)) {
+            return self.firstMatchAscii(program, haystack);
+        }
+
+        var current: std.ArrayList(Thread) = .empty;
+        defer self.deinitThreadList(&current);
+
+        var next: std.ArrayList(Thread) = .empty;
+        defer self.deinitThreadList(&next);
+
+        var pending_match: ?Match = null;
+        defer if (pending_match) |match| match.deinit(self.allocator);
+
+        const visited = try self.allocator.alloc(bool, program.instructions.len);
+        defer self.allocator.free(visited);
+
+        const start_slots = try self.allocSlots(program.slot_count);
+        defer self.allocator.free(start_slots);
+
+        @memset(visited, false);
+        if (try self.addThread(program, haystack, &current, visited, program.start, start_slots, 0)) |match| {
+            if (current.items.len == 0) return match;
+            self.rememberMatch(&pending_match, match);
+        }
+
+        var input = reader.CodePointReader(u8).init(haystack);
+        while (true) {
+            const start = input.pos;
+            const cp = (try input.next()) orelse break;
+            const end = input.pos;
+
+            self.clearThreadList(&next);
+            @memset(visited, false);
+
+            for (current.items) |thread| {
+                if (try self.step(program, haystack, &next, visited, thread, cp, end)) |match| {
+                    self.rememberMatch(&pending_match, match);
+                    break;
+                }
+            }
+            self.clearThreadList(&current);
+
+            if (next.items.len == 0 and pending_match != null) {
+                return takeMatch(&pending_match);
+            }
+
+            std.mem.swap(std.ArrayList(Thread), &current, &next);
+
+            if (pending_match == null and start != end) {
+                @memset(visited, false);
+                const restart_slots = try self.allocSlots(program.slot_count);
+                defer self.allocator.free(restart_slots);
+                if (try self.addThread(program, haystack, &current, visited, program.start, restart_slots, end)) |match| {
+                    if (current.items.len == 0) return match;
+                    self.rememberMatch(&pending_match, match);
+                }
+            }
+        }
+
+        if (pending_match != null) return takeMatch(&pending_match);
+        return null;
+    }
+
+    /// Finds the first match whose start is at or after `start_offset` while
+    /// retaining the original haystack for document-relative anchors.
+    pub fn firstMatchFrom(
+        self: *const MatchEngine,
+        program: nfa.Program,
+        haystack: []const u8,
+        start_offset: usize,
+    ) MatchError!?Match {
+        if (program.instructions.len == 0 or start_offset > haystack.len) return null;
+        if (start_offset < haystack.len and haystack[start_offset] & 0xC0 == 0x80) {
+            return error.InvalidUtf8;
+        }
+        if (program.prefilter) |prefilter| {
+            if (!prefilter.mayMatch(haystack[start_offset..])) return null;
+        }
+
+        var current: std.ArrayList(Thread) = .empty;
+        defer self.deinitThreadList(&current);
+
+        var next: std.ArrayList(Thread) = .empty;
+        defer self.deinitThreadList(&next);
+
+        var pending_match: ?Match = null;
+        defer if (pending_match) |match| match.deinit(self.allocator);
+
+        const visited = try self.allocator.alloc(bool, program.instructions.len);
+        defer self.allocator.free(visited);
+
+        const start_slots = try self.allocSlots(program.slot_count);
+        defer self.allocator.free(start_slots);
+
+        @memset(visited, false);
+        if (try self.addThread(
+            program,
+            haystack,
+            &current,
+            visited,
+            program.start,
+            start_slots,
+            start_offset,
+        )) |match| {
+            if (current.items.len == 0) return match;
+            self.rememberMatch(&pending_match, match);
+        }
+
+        var input = reader.CodePointReader(u8).init(haystack);
+        input.pos = start_offset;
+        while (true) {
+            const start = input.pos;
+            const cp = (try input.next()) orelse break;
+            const end = input.pos;
+
+            self.clearThreadList(&next);
+            @memset(visited, false);
+
+            for (current.items) |thread| {
+                if (try self.step(program, haystack, &next, visited, thread, cp, end)) |match| {
+                    self.rememberMatch(&pending_match, match);
+                    break;
+                }
+            }
+            self.clearThreadList(&current);
+
+            if (next.items.len == 0 and pending_match != null) {
+                return takeMatch(&pending_match);
+            }
+
+            std.mem.swap(std.ArrayList(Thread), &current, &next);
+
+            if (pending_match == null and start != end) {
+                @memset(visited, false);
+                const restart_slots = try self.allocSlots(program.slot_count);
+                defer self.allocator.free(restart_slots);
+                if (try self.addThread(
+                    program,
+                    haystack,
+                    &current,
+                    visited,
+                    program.start,
+                    restart_slots,
+                    end,
+                )) |match| {
+                    if (current.items.len == 0) return match;
+                    self.rememberMatch(&pending_match, match);
+                }
+            }
+        }
+
+        if (pending_match != null) return takeMatch(&pending_match);
+        return null;
+    }
+
+    pub fn firstMatchBytes(self: *const MatchEngine, program: nfa.Program, haystack: []const u8) MatchError!?Match {
+        if (program.instructions.len == 0) return null;
+        if (program.prefilter) |prefilter| {
+            if (!prefilter.mayMatch(haystack)) return null;
+        }
+        if (program.ascii_only and isAsciiBytes(haystack)) {
+            return self.firstMatchAscii(program, haystack);
+        }
+
+        var current: std.ArrayList(Thread) = .empty;
+        defer self.deinitThreadList(&current);
+
+        var next: std.ArrayList(Thread) = .empty;
+        defer self.deinitThreadList(&next);
+
+        var pending_match: ?Match = null;
+        defer if (pending_match) |match| match.deinit(self.allocator);
+
+        const visited = try self.allocator.alloc(bool, program.instructions.len);
+        defer self.allocator.free(visited);
+
+        const start_slots = try self.allocSlots(program.slot_count);
+        defer self.allocator.free(start_slots);
+
+        @memset(visited, false);
+        if (try self.addThread(program, haystack, &current, visited, program.start, start_slots, 0)) |match| {
+            if (current.items.len == 0) return match;
+            self.rememberMatch(&pending_match, match);
+        }
+
+        var pos: usize = 0;
+        while (nextTextUnit(haystack, &pos)) |unit| {
+            self.clearThreadList(&next);
+            @memset(visited, false);
+
+            for (current.items) |thread| {
+                if (try self.stepByte(program, haystack, &next, visited, thread, unit)) |match| {
+                    self.rememberMatch(&pending_match, match);
+                    break;
+                }
+            }
+            self.clearThreadList(&current);
+
+            if (next.items.len == 0 and pending_match != null) {
+                return takeMatch(&pending_match);
+            }
+
+            std.mem.swap(std.ArrayList(Thread), &current, &next);
+
+            if (pending_match == null) {
+                @memset(visited, false);
+                const restart_slots = try self.allocSlots(program.slot_count);
+                defer self.allocator.free(restart_slots);
+                if (try self.addThread(program, haystack, &current, visited, program.start, restart_slots, unit.end)) |match| {
+                    if (current.items.len == 0) return match;
+                    self.rememberMatch(&pending_match, match);
+                }
+            }
+        }
+
+        if (pending_match != null) return takeMatch(&pending_match);
+        return null;
+    }
+
+    fn firstMatchAscii(self: *const MatchEngine, program: nfa.Program, haystack: []const u8) MatchError!?Match {
+        var current: std.ArrayList(Thread) = .empty;
+        defer self.deinitThreadList(&current);
+
+        var next: std.ArrayList(Thread) = .empty;
+        defer self.deinitThreadList(&next);
+
+        var pending_match: ?Match = null;
+        defer if (pending_match) |match| match.deinit(self.allocator);
+
+        const visited = try self.allocator.alloc(bool, program.instructions.len);
+        defer self.allocator.free(visited);
+
+        const start_slots = try self.allocSlots(program.slot_count);
+        defer self.allocator.free(start_slots);
+
+        @memset(visited, false);
+        if (try self.addThread(program, haystack, &current, visited, program.start, start_slots, 0)) |match| {
+            if (current.items.len == 0) return match;
+            self.rememberMatch(&pending_match, match);
+        }
+
+        for (haystack, 0..) |byte, index| {
+            self.clearThreadList(&next);
+            @memset(visited, false);
+
+            for (current.items) |thread| {
+                if (try self.step(program, haystack, &next, visited, thread, byte, index + 1)) |match| {
+                    self.rememberMatch(&pending_match, match);
+                    break;
+                }
+            }
+            self.clearThreadList(&current);
+
+            if (next.items.len == 0 and pending_match != null) {
+                return takeMatch(&pending_match);
+            }
+
+            std.mem.swap(std.ArrayList(Thread), &current, &next);
+
+            if (pending_match == null) {
+                @memset(visited, false);
+                const restart_slots = try self.allocSlots(program.slot_count);
+                defer self.allocator.free(restart_slots);
+                if (try self.addThread(program, haystack, &current, visited, program.start, restart_slots, index + 1)) |match| {
+                    if (current.items.len == 0) return match;
+                    self.rememberMatch(&pending_match, match);
+                }
+            }
+        }
+
+        if (pending_match != null) return takeMatch(&pending_match);
+        return null;
+    }
+
+    fn step(
+        self: *const MatchEngine,
+        program: nfa.Program,
+        haystack: []const u8,
+        list: *std.ArrayList(Thread),
+        visited: []bool,
+        thread: Thread,
+        cp: u32,
+        next_pos: usize,
+    ) MatchError!?Match {
+        switch (program.instructions[thread.inst_ptr]) {
+            .literal => |literal| {
+                if (literal.value != cp) return null;
+                return self.addThread(program, haystack, list, visited, literal.out.?, thread.slots, next_pos);
+            },
+            .char_class => |class| {
+                if (!classMatches(class, cp, program)) return null;
+                return self.addThread(program, haystack, list, visited, class.out.?, thread.slots, next_pos);
+            },
+            .char_class_set => |class_set| {
+                if (!classSetMatches(class_set, cp, program)) return null;
+                return self.addThread(program, haystack, list, visited, class_set.out.?, thread.slots, next_pos);
+            },
+            .unicode_property => |property| {
+                const matched = unicodePropertyMatches(program, property.property, cp);
+                if (property.negated == matched) return null;
+                return self.addThread(program, haystack, list, visited, property.out.?, thread.slots, next_pos);
+            },
+            .any => |any| {
+                if (!any.matches_newline and cp == '\n') return null;
+                return self.addThread(program, haystack, list, visited, any.out.?, thread.slots, next_pos);
+            },
+            else => return null,
+        }
+    }
+
+    fn stepByte(
+        self: *const MatchEngine,
+        program: nfa.Program,
+        haystack: []const u8,
+        list: *std.ArrayList(Thread),
+        visited: []bool,
+        thread: Thread,
+        unit: TextUnit,
+    ) MatchError!?Match {
+        switch (program.instructions[thread.inst_ptr]) {
+            .literal => |literal| {
+                if (unit.scalar == null or literal.value != unit.scalar.?) return null;
+                return self.addThread(program, haystack, list, visited, literal.out.?, thread.slots, unit.end);
+            },
+            .char_class => |class| {
+                if (!textUnitMatchesClass(class, unit, program)) return null;
+                return self.addThread(program, haystack, list, visited, class.out.?, thread.slots, unit.end);
+            },
+            .char_class_set => |class_set| {
+                if (!textUnitMatchesClassSet(class_set, unit, program)) return null;
+                return self.addThread(program, haystack, list, visited, class_set.out.?, thread.slots, unit.end);
+            },
+            .unicode_property => |property| {
+                if (!textUnitMatchesUnicodeProperty(property.property, property.negated, unit, program)) return null;
+                return self.addThread(program, haystack, list, visited, property.out.?, thread.slots, unit.end);
+            },
+            .any => |any| {
+                if (!any.matches_newline and unit.isNewline()) return null;
+                return self.addThread(program, haystack, list, visited, any.out.?, thread.slots, unit.end);
+            },
+            else => return null,
+        }
+    }
+
+    fn addThread(
+        self: *const MatchEngine,
+        program: nfa.Program,
+        haystack: []const u8,
+        list: *std.ArrayList(Thread),
+        visited: []bool,
+        inst_ptr: nfa.InstPtr,
+        slots: []const ?usize,
+        pos: usize,
+    ) MatchError!?Match {
+        if (visited[inst_ptr]) return null;
+        visited[inst_ptr] = true;
+
+        switch (program.instructions[inst_ptr]) {
+            .save => |save| {
+                const updated_slots = try self.cloneSlots(slots);
+                defer self.allocator.free(updated_slots);
+                updated_slots[save.slot] = pos;
+                return self.addThread(program, haystack, list, visited, save.out.?, updated_slots, pos);
+            },
+            .split => |split| {
+                if (split.out) |out| {
+                    if (try self.addThread(program, haystack, list, visited, out, slots, pos)) |match| return match;
+                }
+                if (split.out1) |out1| {
+                    if (try self.addThread(program, haystack, list, visited, out1, slots, pos)) |match| return match;
+                }
+                return null;
+            },
+            .anchor_start => |anchor| {
+                if (!anchorStartAt(haystack, pos, anchor.multiline)) return null;
+                return self.addThread(program, haystack, list, visited, anchor.out.?, slots, pos);
+            },
+            .anchor_end => |anchor| {
+                if (!anchorEndAt(haystack, pos, anchor.multiline)) return null;
+                return self.addThread(program, haystack, list, visited, anchor.out.?, slots, pos);
+            },
+            .word_boundary => |boundary| {
+                if (!wordBoundaryAt(haystack, pos, boundary.ascii_only)) return null;
+                return self.addThread(program, haystack, list, visited, boundary.out.?, slots, pos);
+            },
+            .not_word_boundary => |boundary| {
+                if (wordBoundaryAt(haystack, pos, boundary.ascii_only)) return null;
+                return self.addThread(program, haystack, list, visited, boundary.out.?, slots, pos);
+            },
+            .word_boundary_start_half => |boundary| {
+                if (!wordBoundaryStartHalfAt(haystack, pos, boundary.ascii_only)) return null;
+                return self.addThread(program, haystack, list, visited, boundary.out.?, slots, pos);
+            },
+            .word_boundary_end_half => |boundary| {
+                if (!wordBoundaryEndHalfAt(haystack, pos, boundary.ascii_only)) return null;
+                return self.addThread(program, haystack, list, visited, boundary.out.?, slots, pos);
+            },
+            .match => return try self.buildMatch(program, slots),
+            .literal, .char_class, .char_class_set, .unicode_property, .any => {
+                if (!hasThread(list.items, inst_ptr)) {
+                    try list.append(self.allocator, .{
+                        .inst_ptr = inst_ptr,
+                        .slots = try self.cloneSlots(slots),
+                    });
+                }
+                return null;
+            },
+        }
+    }
+
+    fn rememberMatch(self: *const MatchEngine, pending: *?Match, match: Match) void {
+        if (pending.*) |previous| previous.deinit(self.allocator);
+        pending.* = match;
+    }
+
+    fn allocSlots(self: *const MatchEngine, slot_count: u32) MatchError![]?usize {
+        const slots = try self.allocator.alloc(?usize, slot_count);
+        @memset(slots, null);
+        return slots;
+    }
+
+    fn cloneSlots(self: *const MatchEngine, slots: []const ?usize) MatchError![]?usize {
+        const cloned = try self.allocator.alloc(?usize, slots.len);
+        @memcpy(cloned, slots);
+        return cloned;
+    }
+
+    fn buildMatch(self: *const MatchEngine, program: nfa.Program, slots: []const ?usize) MatchError!Match {
+        const groups = try self.allocator.alloc(Capture, program.capture_count);
+        errdefer self.allocator.free(groups);
+
+        for (groups, 0..) |*group, index| {
+            const base = 2 * (index + 1);
+            group.* = .{
+                .start = slots[base],
+                .end = slots[base + 1],
+            };
+        }
+
+        return .{
+            .span = .{
+                .start = slots[0],
+                .end = slots[1],
+            },
+            .groups = groups,
+        };
+    }
+
+    fn clearThreadList(self: *const MatchEngine, list: *std.ArrayList(Thread)) void {
+        for (list.items) |thread| self.allocator.free(thread.slots);
+        list.clearRetainingCapacity();
+    }
+
+    fn deinitThreadList(self: *const MatchEngine, list: *std.ArrayList(Thread)) void {
+        self.clearThreadList(list);
+        list.deinit(self.allocator);
+    }
+};
+
+fn takeMatch(pending: *?Match) Match {
+    const match = pending.*.?;
+    pending.* = null;
+    return match;
+}
+
+fn canUseLazyDfa(program: nfa.Program) bool {
+    if (program.capture_count != 0) return false;
+
+    for (program.instructions) |inst| {
+        switch (inst) {
+            .word_boundary,
+            .not_word_boundary,
+            .word_boundary_start_half,
+            .word_boundary_end_half,
+            .unicode_property,
+            .char_class_set,
+            => return false,
+            .anchor_start => |anchor| if (anchor.multiline) return false,
+            .anchor_end => |anchor| if (anchor.multiline) return false,
+            .any => |any| if (any.matches_newline) return false,
+            else => {},
+        }
+    }
+
+    return true;
+}
+
+fn hasThread(threads: []const Thread, inst_ptr: nfa.InstPtr) bool {
+    for (threads) |thread| {
+        if (thread.inst_ptr == inst_ptr) return true;
+    }
+    return false;
+}
+
+fn classMatches(class: anytype, cp: u32, program: nfa.Program) bool {
+    var matched = false;
+    for (class.items) |item| {
+        switch (item) {
+            .literal => |literal| {
+                if (literal == cp) {
+                    matched = true;
+                    break;
+                }
+            },
+            .range => |range| {
+                if (range.start <= cp and cp <= range.end) {
+                    matched = true;
+                    break;
+                }
+            },
+            .folded_range => |range| {
+                if (cp != '\n' or program.can_match_newline) {
+                    if (unicode.Strategy.foldedRangeContains(cp, range.start, range.end, .simple)) {
+                        matched = true;
+                        break;
+                    }
+                }
+            },
+            .unicode_property => |property| {
+                const property_matched = unicode.Strategy.hasProperty(cp, property.property);
+                if (property.negated != property_matched) {
+                    matched = true;
+                    break;
+                }
+            },
+        }
+    }
+    return if (class.negated) !matched else matched;
+}
+
+fn textUnitMatchesClass(class: anytype, unit: TextUnit, program: nfa.Program) bool {
+    if (unit.invalid_byte) |byte| {
+        if (isAsciiClass(class)) return classMatches(class, byte, program);
+        return class.negated;
+    }
+    return classMatches(class, unit.scalar.?, program);
+}
+
+fn classSetMatches(class_set: anytype, cp: u32, program: nfa.Program) bool {
+    return classExprMatches(class_set.expr, cp, program);
+}
+
+fn classExprMatches(expr: *const nfa.CompiledClassExpr, cp: u32, program: nfa.Program) bool {
+    return switch (expr.*) {
+        .class => |class| classMatches(class, cp, program),
+        .set => |set| {
+            const lhs_matched = classExprMatches(set.lhs, cp, program);
+            const rhs_matched = classExprMatches(set.rhs, cp, program);
+            return switch (set.op) {
+                .intersection => lhs_matched and rhs_matched,
+                .subtraction => lhs_matched and !rhs_matched,
+            };
+        },
+    };
+}
+
+fn textUnitMatchesClassSet(class_set: anytype, unit: TextUnit, program: nfa.Program) bool {
+    return textUnitMatchesClassExpr(class_set.expr, unit, program);
+}
+
+fn textUnitMatchesClassExpr(expr: *const nfa.CompiledClassExpr, unit: TextUnit, program: nfa.Program) bool {
+    return switch (expr.*) {
+        .class => |class| textUnitMatchesClass(class, unit, program),
+        .set => |set| {
+            const lhs_matched = textUnitMatchesClassExpr(set.lhs, unit, program);
+            const rhs_matched = textUnitMatchesClassExpr(set.rhs, unit, program);
+            return switch (set.op) {
+                .intersection => lhs_matched and rhs_matched,
+                .subtraction => lhs_matched and !rhs_matched,
+            };
+        },
+    };
+}
+
+fn isAsciiClass(class: anytype) bool {
+    for (class.items) |item| {
+        switch (item) {
+            .literal => |literal| if (literal > 0x7f) return false,
+            .range => |range| if (range.start > 0x7f or range.end > 0x7f) return false,
+            .folded_range => return false,
+            .unicode_property => return false,
+        }
+    }
+    return true;
+}
+
+fn textUnitMatchesUnicodeProperty(property: unicode.Property, negated: bool, unit: TextUnit, program: nfa.Program) bool {
+    if (unit.scalar) |cp| {
+        const matched = unicodePropertyMatches(program, property, cp);
+        return if (negated) !matched else matched;
+    }
+    return negated;
+}
+
+fn unicodePropertyMatches(program: nfa.Program, property: unicode.Property, cp: u32) bool {
+    if ((property == .shorthand_whitespace or property == .ascii_shorthand_whitespace) and cp == '\n' and !program.can_match_newline) return false;
+    return unicode.Strategy.hasProperty(cp, property);
+}
+
+fn nextTextUnit(haystack: []const u8, pos: *usize) ?TextUnit {
+    if (pos.* >= haystack.len) return null;
+
+    const start = pos.*;
+    const byte = haystack[start];
+    if (byte < 0x80) {
+        pos.* += 1;
+        return .{
+            .scalar = @as(u32, byte),
+            .invalid_byte = null,
+            .end = pos.*,
+        };
+    }
+
+    const len = std.unicode.utf8ByteSequenceLength(byte) catch {
+        pos.* += 1;
+        return .{
+            .scalar = null,
+            .invalid_byte = byte,
+            .end = pos.*,
+        };
+    };
+    if (start + len > haystack.len) {
+        pos.* += 1;
+        return .{
+            .scalar = null,
+            .invalid_byte = byte,
+            .end = pos.*,
+        };
+    }
+
+    const cp = std.unicode.utf8Decode(haystack[start .. start + len]) catch {
+        pos.* += 1;
+        return .{
+            .scalar = null,
+            .invalid_byte = byte,
+            .end = pos.*,
+        };
+    };
+
+    pos.* += len;
+    return .{
+        .scalar = cp,
+        .invalid_byte = null,
+        .end = pos.*,
+    };
+}
+
+fn isWordTextUnit(unit: TextUnit) bool {
+    if (unit.scalar) |cp| return unicode.Strategy.isWord(cp);
+    return false;
+}
+
+fn isAsciiWordTextUnit(unit: TextUnit) bool {
+    if (unit.scalar) |cp| {
+        return (cp >= 'A' and cp <= 'Z') or
+            (cp >= 'a' and cp <= 'z') or
+            (cp >= '0' and cp <= '9') or
+            cp == '_';
+    }
+    return false;
+}
+
+fn wordBoundaryAt(haystack: []const u8, offset: usize, ascii_only: bool) bool {
+    var before_is_word = false;
+    var pos: usize = 0;
+    while (pos < offset) {
+        const unit = nextTextUnit(haystack, &pos) orelse break;
+        if (unit.end > offset) break;
+        before_is_word = if (ascii_only) isAsciiWordTextUnit(unit) else isWordTextUnit(unit);
+    }
+
+    var after_pos = offset;
+    const after_is_word = if (nextTextUnit(haystack, &after_pos)) |unit|
+        if (ascii_only) isAsciiWordTextUnit(unit) else isWordTextUnit(unit)
+    else
+        false;
+
+    return before_is_word != after_is_word;
+}
+
+fn anchorStartAt(haystack: []const u8, offset: usize, multiline: bool) bool {
+    if (offset == 0) return true;
+    return multiline and offset <= haystack.len and haystack[offset - 1] == '\n';
+}
+
+fn anchorEndAt(haystack: []const u8, offset: usize, multiline: bool) bool {
+    if (offset == haystack.len) return true;
+    return multiline and offset < haystack.len and haystack[offset] == '\n';
+}
+
+fn wordBoundaryStartHalfAt(haystack: []const u8, offset: usize, ascii_only: bool) bool {
+    var before_is_word = false;
+    var pos: usize = 0;
+    while (pos < offset) {
+        const unit = nextTextUnit(haystack, &pos) orelse break;
+        if (unit.end > offset) break;
+        before_is_word = if (ascii_only) isAsciiWordTextUnit(unit) else isWordTextUnit(unit);
+    }
+    return !before_is_word;
+}
+
+fn wordBoundaryEndHalfAt(haystack: []const u8, offset: usize, ascii_only: bool) bool {
+    var after_pos = offset;
+    const after_is_word = if (nextTextUnit(haystack, &after_pos)) |unit|
+        if (ascii_only) isAsciiWordTextUnit(unit) else isWordTextUnit(unit)
+    else
+        false;
+    return !after_is_word;
+}
+
+fn isAsciiBytes(bytes: []const u8) bool {
+    for (bytes) |byte| {
+        if (!std.ascii.isAscii(byte)) return false;
+    }
+    return true;
+}
+
+fn compileProgram(allocator: std.mem.Allocator, pattern: []const u8, options: @import("root.zig").CompileOptions) !nfa.Program {
+    const regex = @import("root.zig");
+
+    const lowered = try regex.compile(allocator, pattern, options);
+    defer lowered.deinit(allocator);
+
+    return nfa.compile(allocator, lowered, .{
+        .multiline = options.multiline,
+        .multiline_dotall = options.multiline_dotall,
+    });
+}
+
+fn compileFoldedProgram(allocator: std.mem.Allocator, pattern: []const u8, options: @import("root.zig").CompileOptions) !nfa.Program {
+    const regex = @import("root.zig");
+
+    var lowered = try regex.compile(allocator, pattern, options);
+    defer lowered.deinit(allocator);
+
+    try regex.hir.applySimpleCaseFold(allocator, &lowered);
+
+    return nfa.compile(allocator, lowered, .{
+        .multiline = options.multiline,
+        .multiline_dotall = options.multiline_dotall,
+    });
+}
+
+fn expectMatch(pattern: []const u8, haystack: []const u8) !void {
+    const testing = std.testing;
+
+    const program = try compileProgram(testing.allocator, pattern, .{});
+    defer program.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+    try testing.expect(try engine.isMatch(program, haystack));
+}
+
+fn expectNoMatch(pattern: []const u8, haystack: []const u8) !void {
+    const testing = std.testing;
+
+    const program = try compileProgram(testing.allocator, pattern, .{});
+    defer program.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+    try testing.expect(!(try engine.isMatch(program, haystack)));
+}
+
+fn expectByteMatch(pattern: []const u8, haystack: []const u8, expected: Capture) !void {
+    const testing = std.testing;
+
+    const program = try compileProgram(testing.allocator, pattern, .{});
+    defer program.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+    const found = (try engine.firstMatchBytes(program, haystack)).?;
+    defer found.deinit(testing.allocator);
+
+    try testing.expectEqual(expected, found.span);
+}
+
+test "VM matches literals, alternation, and repetition" {
+    const testing = std.testing;
+
+    const program = try compileProgram(testing.allocator, "ab|c+", .{});
+    defer program.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+
+    try testing.expect(try engine.isMatch(program, "zzabyy"));
+    try testing.expect(try engine.isMatch(program, "xxccc"));
+    try testing.expect(!(try engine.isMatch(program, "xyz")));
+}
+
+test "VM handles character classes, dot, and UTF-8 code points" {
+    const testing = std.testing;
+
+    const program = try compileProgram(testing.allocator, "[a-c].©", .{});
+    defer program.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+
+    try testing.expect(try engine.isMatch(program, "bZ©"));
+    try testing.expect(try engine.isMatch(program, "xxc!©yy"));
+    try testing.expect(!(try engine.isMatch(program, "d!©")));
+}
+
+test "VM respects start and end anchors" {
+    const testing = std.testing;
+
+    const program = try compileProgram(testing.allocator, "^ab+$", .{});
+    defer program.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+
+    try testing.expect(try engine.isMatch(program, "ab"));
+    try testing.expect(try engine.isMatch(program, "abbb"));
+    try testing.expect(!(try engine.isMatch(program, "zabbb")));
+    try testing.expect(!(try engine.isMatch(program, "abbbz")));
+}
+
+test "VM matches Unicode properties in UTF-8 and raw-byte paths" {
+    const testing = std.testing;
+
+    const program = try compileProgram(testing.allocator, "\\p{Letter}+\\p{Number}+", .{});
+    defer program.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+
+    try testing.expect(try engine.isMatch(program, "ж7"));
+    try testing.expect(!(try engine.isMatch(program, "7ж")));
+
+    const raw_letter = (try engine.firstMatchBytes(program, "\xffж7")).?;
+    defer raw_letter.deinit(testing.allocator);
+    try testing.expectEqual(@as(?usize, 1), raw_letter.span.start);
+    try testing.expectEqual(@as(?usize, 4), raw_letter.span.end);
+
+    const negated = try compileProgram(testing.allocator, "\\P{Letter}+", .{});
+    defer negated.deinit(testing.allocator);
+
+    const raw_negated = (try engine.firstMatchBytes(negated, "\xff")).?;
+    defer raw_negated.deinit(testing.allocator);
+    try testing.expectEqual(@as(?usize, 0), raw_negated.span.start);
+    try testing.expectEqual(@as(?usize, 1), raw_negated.span.end);
+}
+
+test "VM requires multiline for newline literal patterns" {
+    const testing = std.testing;
+    const program_result = compileProgram(testing.allocator, "a\\nb", .{});
+    try testing.expectError(error.MultilineRequired, program_result);
+}
+
+test "VM multiline mode matches newline literals" {
+    const testing = std.testing;
+
+    const program = try compileProgram(testing.allocator, "a\\nb", .{ .multiline = true });
+    defer program.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+    try testing.expect(try engine.isMatch(program, "xxa\nbyy"));
+    try testing.expect(!(try engine.isMatch(program, "xxabyy")));
+}
+
+test "VM multiline mode keeps dot from matching newline without dotall" {
+    const testing = std.testing;
+
+    const program = try compileProgram(testing.allocator, "a.b", .{ .multiline = true });
+    defer program.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+    try testing.expect(!(try engine.isMatch(program, "a\nb")));
+}
+
+test "VM multiline dotall makes dot match newline" {
+    const testing = std.testing;
+
+    const program = try compileProgram(testing.allocator, "a.b", .{
+        .multiline = true,
+        .multiline_dotall = true,
+    });
+    defer program.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+    try testing.expect(try engine.isMatch(program, "a\nb"));
+}
+
+test "VM matches empty expressions and optional paths" {
+    const testing = std.testing;
+
+    const empty_program = try compileProgram(testing.allocator, "", .{});
+    defer empty_program.deinit(testing.allocator);
+
+    const optional_program = try compileProgram(testing.allocator, "colou?r", .{});
+    defer optional_program.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+
+    try testing.expect(try engine.isMatch(empty_program, ""));
+    try testing.expect(try engine.isMatch(empty_program, "anything"));
+    try testing.expect(try engine.isMatch(optional_program, "color"));
+    try testing.expect(try engine.isMatch(optional_program, "colour"));
+    try testing.expect(!(try engine.isMatch(optional_program, "colouur")));
+}
+
+test "VM handles counted repetition regressions" {
+    try expectMatch("a{0,2}b", "b");
+    try expectMatch("a{0,2}b", "ab");
+    try expectMatch("a{0,2}b", "aab");
+    try expectMatch("a{0,2}b", "aaab");
+
+    try expectMatch("ba{2,}c", "baaac");
+    try expectNoMatch("ba{2,}c", "bac");
+
+    try expectMatch("x{3}", "zzzxxxy");
+    try expectNoMatch("x{3}", "zzxxy");
+}
+
+test "VM honors lazy quantifier priority" {
+    const testing = std.testing;
+
+    const lazy = try compileProgram(testing.allocator, "a.+?b", .{});
+    defer lazy.deinit(testing.allocator);
+
+    const greedy = try compileProgram(testing.allocator, "a.+b", .{});
+    defer greedy.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+
+    const lazy_match = (try engine.firstMatch(lazy, "zzaxxbxxbyy")).?;
+    defer lazy_match.deinit(testing.allocator);
+    try testing.expectEqual(Capture{ .start = 2, .end = 6 }, lazy_match.span);
+
+    const greedy_match = (try engine.firstMatch(greedy, "zzaxxbxxbyy")).?;
+    defer greedy_match.deinit(testing.allocator);
+    try testing.expectEqual(Capture{ .start = 2, .end = 9 }, greedy_match.span);
+}
+
+test "VM keeps terminal quantifiers greedy across match paths" {
+    const testing = std.testing;
+
+    const ascii = try compileProgram(testing.allocator, "([0-9]+)", .{});
+    defer ascii.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+    const first = (try engine.firstMatch(ascii, "x123 y45")).?;
+    defer first.deinit(testing.allocator);
+    try testing.expectEqual(Capture{ .start = 1, .end = 4 }, first.span);
+    try testing.expectEqual(Capture{ .start = 1, .end = 4 }, first.groups[0]);
+
+    const from = (try engine.firstMatchFrom(ascii, "x123 y45", 4)).?;
+    defer from.deinit(testing.allocator);
+    try testing.expectEqual(Capture{ .start = 6, .end = 8 }, from.span);
+    try testing.expectEqual(Capture{ .start = 6, .end = 8 }, from.groups[0]);
+
+    const unicode_program = try compileProgram(testing.allocator, "(é+)", .{});
+    defer unicode_program.deinit(testing.allocator);
+    const unicode_match = (try engine.firstMatch(unicode_program, "xééy")).?;
+    defer unicode_match.deinit(testing.allocator);
+    try testing.expectEqual(Capture{ .start = 1, .end = 5 }, unicode_match.span);
+    try testing.expectEqual(Capture{ .start = 1, .end = 5 }, unicode_match.groups[0]);
+
+    const bytes = try compileProgram(testing.allocator, "(a.+b)", .{});
+    defer bytes.deinit(testing.allocator);
+    const byte_match = (try engine.firstMatchBytes(bytes, "xa\xffbxb")).?;
+    defer byte_match.deinit(testing.allocator);
+    try testing.expectEqual(Capture{ .start = 1, .end = 6 }, byte_match.span);
+    try testing.expectEqual(Capture{ .start = 1, .end = 6 }, byte_match.groups[0]);
+}
+
+test "VM handles negated classes and class edge literals" {
+    try expectMatch("[^a-c]+", "zzz");
+    try expectMatch("[^-\\]]+", "abc");
+    try expectNoMatch("[^a-c]+", "cab");
+    try expectMatch("[\\]\\-\\^]+", "]^-");
+}
+
+test "VM handles explicit char-class sequences inside longer haystacks" {
+    try expectMatch("[Nn][Ee][Ee][Dd][Ll][Ee]", "Needle one");
+}
+
+test "VM handles folded literal class sequences inside longer haystacks" {
+    const testing = std.testing;
+
+    const program = try compileFoldedProgram(testing.allocator, "needle", .{});
+    defer program.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+    const found = (try engine.firstMatch(program, "Needle one")).?;
+    defer found.deinit(testing.allocator);
+    try testing.expectEqual(Capture{ .start = 0, .end = 6 }, found.span);
+}
+
+test "VM handles Unicode digit and whitespace shorthands" {
+    try expectMatch("a\\db", "a5b");
+    try expectMatch("a\\db", "a١b");
+    try expectNoMatch("a\\db", "a²b");
+    try expectMatch("a\\Db", "a字b");
+    try expectMatch("\\s+", " \t");
+    try expectMatch("\\s+", "\xC2\xA0");
+    try expectNoMatch("\\s+", "abc");
+}
+
+test "VM handles Unicode word shorthands" {
+    const testing = std.testing;
+
+    try expectMatch("\\w+", "Жβ");
+    try expectMatch("\\w+", "a\xCD\x85");
+    try expectMatch("\\w+", "_");
+    try expectNoMatch("\\w+", "-");
+
+    const word = try compileProgram(testing.allocator, "\\w+", .{});
+    defer word.deinit(testing.allocator);
+
+    const not_word = try compileProgram(testing.allocator, "\\W+", .{});
+    defer not_word.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+    try testing.expect((try engine.firstMatchBytes(word, "\xff")) == null);
+
+    const raw_not_word = (try engine.firstMatchBytes(not_word, "\xff")).?;
+    defer raw_not_word.deinit(testing.allocator);
+    try testing.expectEqual(Capture{ .start = 0, .end = 1 }, raw_not_word.span);
+}
+
+test "VM shorthand space class follows multiline newline semantics" {
+    const testing = std.testing;
+
+    const no_multiline = try compileProgram(testing.allocator, "^\\s+$", .{});
+    defer no_multiline.deinit(testing.allocator);
+
+    const multiline = try compileProgram(testing.allocator, "^\\s+$", .{ .multiline = true });
+    defer multiline.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+    try testing.expect(!(try engine.isMatch(no_multiline, "\t \n")));
+    try testing.expect(try engine.isMatch(multiline, "\t \n"));
+}
+
+test "VM supports inline Unicode mode toggles" {
+    const testing = std.testing;
+
+    try expectMatch("(?-u:\\w+)", "A");
+    try expectNoMatch("(?-u:\\w+)", "Ж");
+    try expectMatch("(?-u:\\s+)", " \t");
+    try expectNoMatch("(?-u:\\s+)", "\xC2\xA0");
+    try expectMatch("((?-u:\\bA\\b))", "A");
+    try expectNoMatch("((?-u:\\bЖ\\b))", "Ж");
+    try expectMatch("(?-u:\\w(?u:\\w)\\w)", "AЖA");
+    try expectNoMatch("(?-u:\\w(?u:\\w)\\w)", "AЖЖ");
+
+    const raw_not_word = try compileProgram(testing.allocator, "(?-u:\\W+)", .{});
+    defer raw_not_word.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+    const raw = (try engine.firstMatchBytes(raw_not_word, "\xff")).?;
+    defer raw.deinit(testing.allocator);
+    try testing.expectEqual(Capture{ .start = 0, .end = 1 }, raw.span);
+}
+
+test "VM supports inline multiline and dotall groups" {
+    const testing = std.testing;
+
+    try expectMatch("(?m:^b$)", "a\nb\n");
+    try expectNoMatch("(?-m:^b$)", "a\nb\n");
+
+    const multiline_dot = try compileProgram(testing.allocator, "(?s:a.b)", .{ .multiline = true });
+    defer multiline_dot.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+    try testing.expect(try engine.isMatch(multiline_dot, "a\nb"));
+
+    const local_no_dotall = try compileProgram(testing.allocator, "(?-s:a.b)", .{
+        .multiline = true,
+        .multiline_dotall = true,
+    });
+    defer local_no_dotall.deinit(testing.allocator);
+    try testing.expect(!(try engine.isMatch(local_no_dotall, "a\nb")));
+}
+
+test "VM supports unscoped inline flag toggles" {
+    const testing = std.testing;
+
+    try expectMatch("(?i)a(?-i)A", "aA");
+    try expectNoMatch("(?i)a(?-i)A", "Aa");
+    try expectMatch("(?-u)\\w+", "A");
+    try expectNoMatch("(?-u)\\w+", "Ж");
+    try expectMatch("(?m)^b$", "a\nb\n");
+
+    const local_dotall = try compileProgram(testing.allocator, "(?s)a.b", .{ .multiline = true });
+    defer local_dotall.deinit(testing.allocator);
+    var engine = MatchEngine.init(testing.allocator);
+    try testing.expect(try engine.isMatch(local_dotall, "a\nb"));
+
+    const local_no_dotall = try compileProgram(testing.allocator, "(?-s)a.b", .{
+        .multiline = true,
+        .multiline_dotall = true,
+    });
+    defer local_no_dotall.deinit(testing.allocator);
+    try testing.expect(!(try engine.isMatch(local_no_dotall, "a\nb")));
+}
+
+test "VM supports grouped inline flag bundles" {
+    const testing = std.testing;
+
+    const dotall = try compileProgram(testing.allocator, "(?is:a.b)", .{ .multiline = true });
+    defer dotall.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+    try testing.expect(try engine.isMatch(dotall, "a\nb"));
+
+    try expectMatch("(?i-u:\\w+)", "A");
+    try expectNoMatch("(?i-u:\\w+)", "Ж");
+}
+
+test "VM handles word boundaries on UTF-8 and raw-byte haystacks" {
+    const testing = std.testing;
+
+    const word_boundary = try compileProgram(testing.allocator, "\\bcat\\b", .{});
+    defer word_boundary.deinit(testing.allocator);
+
+    const not_word_boundary = try compileProgram(testing.allocator, "\\Bcat\\B", .{});
+    defer not_word_boundary.deinit(testing.allocator);
+
+    const unicode_word_boundary = try compileProgram(testing.allocator, "\\bЖβ\\b", .{});
+    defer unicode_word_boundary.deinit(testing.allocator);
+
+    const combining_word_boundary = try compileProgram(testing.allocator, "\\bβ\xCD\x85\\b", .{});
+    defer combining_word_boundary.deinit(testing.allocator);
+
+    const unicode_not_word_boundary = try compileProgram(testing.allocator, "\\BЖβ\\B", .{});
+    defer unicode_not_word_boundary.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+    try testing.expect(try engine.isMatch(word_boundary, "a cat!"));
+    try testing.expect(!(try engine.isMatch(word_boundary, "scatter")));
+    try testing.expect(try engine.isMatch(not_word_boundary, "scatter"));
+    try testing.expect(try engine.isMatch(unicode_word_boundary, "Жβ"));
+    try testing.expect(try engine.isMatch(combining_word_boundary, "β\xCD\x85"));
+    try testing.expect(!(try engine.isMatch(unicode_not_word_boundary, "Жβ")));
+
+    const raw = (try engine.firstMatchBytes(word_boundary, "\xffcat\xff")).?;
+    defer raw.deinit(testing.allocator);
+    try testing.expectEqual(Capture{ .start = 1, .end = 4 }, raw.span);
+}
+
+test "VM handles half-word boundaries" {
+    try expectMatch("\\b{start-half}cat\\b{end-half}", "cat");
+    try expectMatch("\\b{start-half}cat\\b{end-half}", "!cat");
+    try expectMatch("\\b{start-half}cat\\b{end-half}", "cat!");
+    try expectNoMatch("\\b{start-half}cat\\b{end-half}", "βcat");
+    try expectNoMatch("\\b{start-half}cat\\b{end-half}", "catβ");
+    try expectMatch("\\b{start-half}-2\\b{end-half}", "(-2)");
+    try expectMatch("(?-u:\\b{start-half}A\\b{end-half})", "!A!");
+}
+
+test "VM handles class-set subtraction and intersection" {
+    try expectMatch("[\\w--\\p{ASCII}]+", "Ж");
+    try expectNoMatch("[\\w--\\p{ASCII}]+", "A");
+    try expectMatch("[\\p{Greek}&&\\p{Uppercase}]+", "Ω");
+    try expectNoMatch("[\\p{Greek}&&\\p{Uppercase}]+", "ω");
+}
+
+test "VM handles empty alternation branches and anchor-only patterns" {
+    try expectMatch("a|", "");
+    try expectMatch("a|", "zzz");
+    try expectMatch("|b", "bbb");
+    try expectMatch("^$", "");
+    try expectNoMatch("^$", "x");
+}
+
+test "VM handles escaped metacharacters literally" {
+    try expectMatch("\\^\\$\\[\\]\\(\\)\\|\\?\\+\\*\\{\\}\\\\", "xx^$[]()|?+*{}\\yy");
+    try expectNoMatch("\\^\\$\\[\\]\\(\\)\\|\\?\\+\\*\\{\\}\\\\", "^$[]()|?+*{}");
+}
+
+test "VM ripgrep multiline dot_no_newline regression" {
+    try expectNoMatch("of this world.+detective work", "of this world\nin the province of detective work");
+    try expectMatch("of this world.+detective work", "of this world and detective work");
+}
+
+test "VM ripgrep regression 93 adapted to supported syntax" {
+    try expectMatch("([0-9]{1,3}\\.){3}[0-9]{1,3}", "192.168.1.1");
+    try expectMatch("([0-9]{1,3}\\.){3}[0-9]{1,3}", "prefix 10.0.0.42 suffix");
+    try expectNoMatch("([0-9]{1,3}\\.){3}[0-9]{1,3}", "192.168.1");
+}
+
+test "VM returns whole-match and capture spans" {
+    const testing = std.testing;
+
+    const program = try compileProgram(testing.allocator, "(ab)(cc)", .{});
+    defer program.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+    const found = (try engine.firstMatch(program, "zzabccyy")).?;
+    defer found.deinit(testing.allocator);
+
+    try testing.expectEqual(Capture{ .start = 2, .end = 6 }, found.span);
+    try testing.expectEqual(@as(usize, 2), found.groups.len);
+    try testing.expectEqual(Capture{ .start = 2, .end = 4 }, found.groups[0]);
+    try testing.expectEqual(Capture{ .start = 4, .end = 6 }, found.groups[1]);
+}
+
+test "VM supports named capture group syntax without changing capture order" {
+    const testing = std.testing;
+
+    const program = try compileProgram(testing.allocator, "(?P<head>ab)(cc)", .{});
+    defer program.deinit(testing.allocator);
+
+    try testing.expectEqual(@as(u32, 2), program.capture_count);
+
+    var engine = MatchEngine.init(testing.allocator);
+    const found = (try engine.firstMatch(program, "zzabccyy")).?;
+    defer found.deinit(testing.allocator);
+
+    try testing.expectEqual(Capture{ .start = 2, .end = 6 }, found.span);
+    try testing.expectEqual(@as(usize, 2), found.groups.len);
+    try testing.expectEqual(Capture{ .start = 2, .end = 4 }, found.groups[0]);
+    try testing.expectEqual(Capture{ .start = 4, .end = 6 }, found.groups[1]);
+}
+
+test "VM returns null when no capture match exists" {
+    const testing = std.testing;
+
+    const program = try compileProgram(testing.allocator, "(ab)+", .{});
+    defer program.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+    try testing.expect((try engine.firstMatch(program, "zzz")) == null);
+}
+
+test "VM prefilter rejects haystacks without the required literal" {
+    const testing = std.testing;
+
+    const program = try compileProgram(testing.allocator, "needle.*hay", .{});
+    defer program.deinit(testing.allocator);
+
+    try testing.expect(program.prefilter != null);
+    try testing.expect(!program.prefilter.?.mayMatch("zzz"));
+
+    var engine = MatchEngine.init(testing.allocator);
+    try testing.expect((try engine.firstMatch(program, "zzz")) == null);
+    try testing.expect(try engine.isMatch(program, "needle then hay"));
+}
+
+test "VM boolean search uses the non-capturing lazy DFA path" {
+    const testing = std.testing;
+
+    const program = try compileProgram(testing.allocator, "ab|c+", .{});
+    defer program.deinit(testing.allocator);
+
+    try testing.expectEqual(@as(u32, 0), program.capture_count);
+
+    var engine = MatchEngine.init(testing.allocator);
+    try testing.expect(try engine.isMatch(program, "xxcccc"));
+    try testing.expect(!(try engine.isMatch(program, "xyz")));
+}
+
+test "VM uses the ASCII-first capture path for ASCII-safe programs" {
+    const testing = std.testing;
+
+    const program = try compileProgram(testing.allocator, "(ab)(cdd)", .{});
+    defer program.deinit(testing.allocator);
+
+    try testing.expect(program.ascii_only);
+
+    var engine = MatchEngine.init(testing.allocator);
+    const found = (try engine.firstMatch(program, "zzabcddyy")).?;
+    defer found.deinit(testing.allocator);
+
+    try testing.expectEqual(Capture{ .start = 2, .end = 7 }, found.span);
+    try testing.expectEqual(Capture{ .start = 2, .end = 4 }, found.groups[0]);
+    try testing.expectEqual(Capture{ .start = 4, .end = 7 }, found.groups[1]);
+}
+
+test "VM byte path matches through invalid UTF-8 bytes" {
+    try expectByteMatch("a.b", "xxa\xffbyy", .{ .start = 2, .end = 5 });
+    try expectByteMatch("жар", "xx\xffжарyy", .{ .start = 3, .end = 9 });
+}
+
+test "VM byte path preserves capture spans on invalid UTF-8 input" {
+    const testing = std.testing;
+
+    const program = try compileProgram(testing.allocator, "(a.)([0-9]b)", .{});
+    defer program.deinit(testing.allocator);
+
+    var engine = MatchEngine.init(testing.allocator);
+    const found = (try engine.firstMatchBytes(program, "xxa\xff7byy")).?;
+    defer found.deinit(testing.allocator);
+
+    try testing.expectEqual(Capture{ .start = 2, .end = 6 }, found.span);
+    try testing.expectEqual(Capture{ .start = 2, .end = 4 }, found.groups[0]);
+    try testing.expectEqual(Capture{ .start = 4, .end = 6 }, found.groups[1]);
+}
