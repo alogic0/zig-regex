@@ -1,0 +1,22 @@
+name: Feature request
+description: Propose a change to the regex library.
+body:
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: Describe the pattern or integration that the current API cannot handle.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Include a small example and explain how this belongs in parsing, compilation or matching. Callers own search loops, replacement syntax and IO.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe any existing API or caller-side approach you have tried.

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1 — 2026-11-11
+
+- Prepare the GitHub README, bug and feature forms, pull request template and
+  first-upload instructions.
+- Verify release archives as dependencies with empty caches on both supported
+  compilers, in addition to testing the extracted source and package fixture.
+- Keep repository metadata out of source archives and preserve LF line endings.
+- Preserve the 0.2.0 tag and artifacts; matching behavior and the public API are
+  unchanged.
+
 ## 0.2.0 — 2026-11-03
 
 - Qualify the pure regex core on Zig 0.15.2 alongside the default Zig 0.17.0,

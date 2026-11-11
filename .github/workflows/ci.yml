@@ -38,6 +38,7 @@ jobs:
           test "$(zig version)" = "${{ matrix.zig }}"
           node --check tests/run-wasm.mjs
           sh -n tools/prepare-release.sh
+          sh -n tools/check-package.sh
       - name: Check default compiler formatting
         if: matrix.zig == '0.17.0' && matrix.optimize == 'Debug'
         run: zig fmt --check build.zig build.zig.zon src examples tests
@@ -48,10 +49,14 @@ jobs:
         run: zig build test -Doptimize=${{ matrix.optimize }} --summary all
 
   package:
-    name: Verify source distribution
+    name: Verify source distribution (Zig ${{ matrix.zig }})
     needs: test
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        zig: ['0.15.2', '0.17.0']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -76,8 +81,13 @@ jobs:
             version=$(sed -n 's/^version=//p' zig-out/dist/PACKAGE_INFO.txt)
             test "$GITHUB_REF_NAME" = "v$version"
           fi
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: ${{ matrix.zig }}
+          cache-key: regex-archive-consumer-${{ matrix.zig }}
       - name: Verify archived sources without a sibling checkout
         run: |
+          test "$(zig version)" = "${{ matrix.zig }}"
           archive=$(find "$GITHUB_WORKSPACE/zig-out/dist" -maxdepth 1 -name 'zig-regex-*.tar.gz' -print)
           mkdir "$RUNNER_TEMP/regex-source"
           tar -xzf "$archive" -C "$RUNNER_TEMP/regex-source"
@@ -85,12 +95,21 @@ jobs:
           test -s LICENSE
           test -s UNICODE-LICENSE
           test -s NOTICE
+          test ! -e .github
+          test ! -e AGENTS.md
           for optimize in Debug ReleaseSafe; do
             zig build test check example test-wasm -Doptimize="$optimize" --summary all
             (cd tests/package && zig build test -Doptimize="$optimize" --summary all)
           done
+      - name: Check archive dependency with empty caches
+        run: |
+          test "$(zig version)" = "${{ matrix.zig }}"
+          archive=$(sed -n 's/^archive=//p' zig-out/dist/PACKAGE_INFO.txt)
+          package_hash=$(sed -n 's/^package_hash=//p' zig-out/dist/PACKAGE_INFO.txt)
+          ./tools/check-package.sh "zig-out/dist/$archive" "$package_hash"
       - name: Retain verified distribution
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: matrix.zig == '0.17.0'
         with:
           name: zig-regex-source-${{ github.sha }}
           path: zig-out/dist/

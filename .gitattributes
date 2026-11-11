@@ -1,0 +1,6 @@
+* text=auto eol=lf
+
+# Repository-only metadata is not needed in source distributions.
+/.gitattributes export-ignore
+/.github export-ignore
+/AGENTS.md export-ignore

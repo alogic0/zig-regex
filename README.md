@@ -1,28 +1,64 @@
 # zig-regex
 
-Allocator-owned regular expressions for Zig **0.17.0** and **0.15.2**, with Unicode
-properties, simple case folding, captures and byte offsets. Version **0.2.0**.
-The package
-exports one module, `regex`, and has no package, C-library or IO dependencies.
-Generated Unicode data is included; normal builds do not download anything.
+Dependency-free regex library for Zig with Unicode support, captures, byte
+offsets, and explicit allocator ownership.
+
+Version **0.2.1** supports Zig **0.17.0** and **0.15.2**. The package exports one
+module, `regex`, and has no package, C-library or IO dependencies. Generated
+Unicode data is included; normal builds do not download anything.
+
+- Unicode properties and simple case folding, including scoped inline modes.
+- Named and numbered captures with offsets into the original input bytes.
+- Greedy and lazy repetition, character classes, anchors and word boundaries.
+- UTF-8 matching and a separate entry point for input containing invalid bytes.
+- Caller-supplied allocation and an optional compiled-instruction limit.
+
+This is a pre-1.0 regex subset. Lookaround and backreferences are unsupported;
+it does not claim PCRE compatibility. See [syntax and limits](#syntax-and-limits)
+before choosing it for an existing pattern set.
+
+## Try it
+
+From a checkout, with the compiler pinned in [`.zigversion`](.zigversion):
+
+```sh
+zig build example
+zig build test check
+```
+
+The [complete example](examples/basic.zig) compiles a pattern, extracts a capture
+and releases the compiled pattern and match. The example prints `capture: 42`.
 
 ## Use
 
-For a shared dependency, verify the release archive against `SHA256SUMS`, copy it
-to your project's `vendor/` directory, and run from your project root:
+Download the release's `zig-regex-0.2.1.tar.gz`, `SHA256SUMS` and
+`PACKAGE_INFO.txt` together. In the download directory, verify the archive:
 
 ```sh
-zig fetch vendor/zig-regex-0.2.0.tar.gz
+sha256sum --check SHA256SUMS
+```
+
+Copy the archive to your project's `vendor/` directory, then run from your
+project root:
+
+```sh
+zig fetch vendor/zig-regex-0.2.1.tar.gz
 ```
 
 Compare the printed hash with `PACKAGE_INFO.txt`, which also records the source
 revision. Add a `.regex` entry to `build.zig.zon` dependencies with
-`.url = "file:vendor/zig-regex-0.2.0.tar.gz"` and `.hash` set to that verified
+`.url = "file:vendor/zig-regex-0.2.1.tar.gz"` and `.hash` set to that verified
 hash. Use a filesystem path for the fetch command: relative `file:` URLs resolve
 correctly in dependency manifests, but direct fetch handling differs between
 the qualified compilers. Commit the archive and manifest together.
-Local development can use `.regex = .{ .path = "../zig-regex" }` instead.
-Wire the public module into your build:
+For a local checkout next to your project, add this entry to the existing
+`.dependencies` in `build.zig.zon`:
+
+```zig
+.regex = .{ .path = "../zig-regex" },
+```
+
+Wire the public module into your `build.zig`, where `exe` is your executable:
 
 ```zig
 const regex = b.dependency("regex", .{ .target = target, .optimize = optimize });
@@ -113,7 +149,11 @@ See [NOTICE](NOTICE) for
 source provenance. Code uses [MIT](LICENSE); generated Unicode data uses
 [Unicode License V3](UNICODE-LICENSE).
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for ownership/regression expectations and
-[RELEASING.md](RELEASING.md) for reproducible source distribution. CI checks
-Debug/ReleaseSafe, native and Wasm callers, and the actual source archive before
-retaining distribution artifacts. Publication is a separate maintainer action.
+## Contributing and releases
+
+Use the GitHub issue templates to report a reproducible bug or propose a change.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for ownership and regression expectations,
+[CHANGELOG.md](CHANGELOG.md) for version history and [RELEASING.md](RELEASING.md)
+for GitHub setup and reproducible source distribution. CI checks Debug and
+ReleaseSafe, native and Wasm callers, archived sources, and archive dependencies
+with empty caches before retaining distribution artifacts.

@@ -1,6 +1,6 @@
 .{
     .name = .regex,
-    .version = "0.2.0",
+    .version = "0.2.1",
     .fingerprint = 0x4204f8cab7dc3e7b,
     .minimum_zig_version = "0.15.2",
     .dependencies = .{},
@@ -20,6 +20,7 @@
         "CONTRIBUTING.md",
         "CHANGELOG.md",
         "tools/prepare-release.sh",
+        "tools/check-package.sh",
         "DESIGN.md",
         "NOTICE",
         "LICENSE",

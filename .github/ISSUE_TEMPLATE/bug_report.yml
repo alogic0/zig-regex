@@ -1,0 +1,45 @@
+name: Bug report
+description: Report a parsing, matching, ownership or build failure.
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Library version or commit
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Zig version, target and optimization mode
+      description: Include the output of zig version, the OS/CPU, and Debug or ReleaseSafe.
+      placeholder: Zig 0.17.0, Linux x86_64, Debug
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include the pattern, input, compile options and API calls. Use escaped bytes for invalid UTF-8 and remove confidential input.
+      render: zig
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+      description: For matching failures, include the expected match and capture offsets in bytes.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Include actual byte offsets, errors or a reduced crash trace.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Build command and output
+      description: Include the failing command and relevant output when reporting a build failure.
+      render: text
