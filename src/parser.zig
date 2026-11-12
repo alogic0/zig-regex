@@ -550,6 +550,27 @@ pub const Parser = struct {
     }
 
     fn parseClassAtom(self: *Parser, first: bool) ParseError!ClassItem {
+        // These tokens are operators outside brackets but ordinary members
+        // inside them. Keep brackets, ranges and set operators on their
+        // existing class-specific paths below.
+        const punctuation: ?u32 = switch (self.lookahead.token) {
+            .dot => '.',
+            .plus => '+',
+            .question => '?',
+            .star => '*',
+            .anchor_end => '$',
+            .alternation => '|',
+            .l_paren => '(',
+            .r_paren => ')',
+            .l_brace => '{',
+            .r_brace => '}',
+            .comma => ',',
+            else => null,
+        };
+        if (punctuation) |cp| {
+            try self.advance();
+            return .{ .literal = cp };
+        }
         switch (self.lookahead.token) {
             .literal => |cp| {
                 try self.advance();
@@ -639,7 +660,9 @@ pub const Parser = struct {
         defer items.deinit(self.allocator);
 
         var first = true;
-        while (self.lookahead.token != .eof and self.lookahead.token != .r_bracket) {
+        while (self.lookahead.token != .eof and
+            (self.lookahead.token != .r_bracket or (first and self.lookahead2.token != .eof)))
+        {
             if (!first and classSetOperatorAhead(self)) break;
 
             const start = try self.parseClassAtom(first);
@@ -1032,6 +1055,26 @@ test "Parser supports character classes and ranges" {
     try testing.expectEqualDeep(ClassItem{ .range = .{ .start = 'a', .end = 'z' } }, class.items[0]);
     try testing.expectEqualDeep(ClassItem{ .range = .{ .start = '0', .end = '9' } }, class.items[1]);
     try testing.expectEqualDeep(ClassItem{ .literal = '_' }, class.items[2]);
+}
+
+test "Parser accepts literal operator punctuation and leading closing brackets in classes" {
+    const members = ".+?*$|(){},";
+    for (members) |member| {
+        const pattern = [_]u8{ '[', member, ']' };
+        var parser = try Parser.init(std.testing.allocator, &pattern);
+        const ast = try parser.parse();
+        defer ast.deinit(std.testing.allocator);
+        const class = ast.nodes[@backingInt(ast.root)].char_class;
+        try std.testing.expectEqual(@as(usize, 1), class.items.len);
+        try std.testing.expectEqualDeep(ClassItem{ .literal = member }, class.items[0]);
+    }
+    var parser = try Parser.init(std.testing.allocator, "[]^.-0]");
+    const ast = try parser.parse();
+    defer ast.deinit(std.testing.allocator);
+    const class = ast.nodes[@backingInt(ast.root)].char_class;
+    try std.testing.expectEqualDeep(ClassItem{ .literal = ']' }, class.items[0]);
+    try std.testing.expectEqualDeep(ClassItem{ .literal = '^' }, class.items[1]);
+    try std.testing.expectEqualDeep(ClassItem{ .range = .{ .start = '.', .end = '0' } }, class.items[2]);
 }
 
 test "Parser rejects invalid class range and quantifier" {

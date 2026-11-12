@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.2.2 — 2026-11-12
+
+- Accept unescaped literal punctuation such as `.`, `+`, `?`, `*`, `$`, `|`,
+  parentheses, braces and commas in character classes, including ranges and
+  negated classes. Make a leading `]` usable as a literal class member while
+  preserving class-set subtraction/intersection and the empty-class diagnostic.
+
 - Require Zig 0.17.0 for the library, package caller, tooling and CI. Remove
   the older-compiler enum-conversion compatibility layer and use the pinned
   compiler's builtins directly.

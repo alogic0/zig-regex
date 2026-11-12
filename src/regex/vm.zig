@@ -1037,6 +1037,27 @@ test "VM handles negated classes and class edge literals" {
     try expectMatch("[\\]\\-\\^]+", "]^-");
 }
 
+test "VM treats punctuation literally in classes without changing class operators" {
+    for (".+?*$|(){},") |member| {
+        const plain = [_]u8{ '[', member, ']' };
+        const escaped = [_]u8{ '[', '\\', member, ']' };
+        const negated = [_]u8{ '[', '^', member, ']' };
+        try expectMatch(&plain, &.{member});
+        try expectMatch(&escaped, &.{member});
+        try expectNoMatch(&negated, &.{member});
+        try expectMatch(&negated, "a");
+    }
+    try expectMatch("local-state/(validations|artifacts|caches|worktrees)/[A-Za-z0-9_./-]+", "path local-state/validations/run-1/a.ll end");
+    try expectMatch("[]]+", "]]");
+    try expectNoMatch("[^]]+", "]]");
+    try expectMatch("[-a]+", "-a");
+    try expectMatch("[a-]+", "a-");
+    try expectMatch("[.+?*--[?*]]+", ".+");
+    try expectNoMatch("[.+?*--[?*]]+", "?*");
+    try expectMatch("[.+?*&&[?*]]+", "?*");
+    try expectNoMatch("[.+?*&&[?*]]+", ".+");
+}
+
 test "VM handles explicit char-class sequences inside longer haystacks" {
     try expectMatch("[Nn][Ee][Ee][Dd][Ll][Ee]", "Needle one");
 }

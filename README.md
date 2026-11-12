@@ -3,7 +3,7 @@
 Dependency-free regex library for Zig with Unicode support, captures, byte
 offsets, and explicit allocator ownership.
 
-Version **0.2.1** requires Zig **0.17.0**. The package exports one
+Version **0.2.2** requires Zig **0.17.0**. The package exports one
 module, `regex`, which has no package, C-library or IO dependencies. Generated
 Unicode data is included; normal builds do not download anything.
 
@@ -31,7 +31,7 @@ and releases the compiled pattern and match. The example prints `capture: 42`.
 
 ## Use
 
-Download the release's `zig-regex-0.2.1.tar.gz`, `SHA256SUMS` and
+Download the release's `zig-regex-0.2.2.tar.gz`, `SHA256SUMS` and
 `PACKAGE_INFO.txt` together. In the download directory, verify the archive:
 
 ```sh
@@ -42,12 +42,12 @@ Copy the archive to your project's `vendor/` directory, then run from your
 project root:
 
 ```sh
-zig fetch vendor/zig-regex-0.2.1.tar.gz
+zig fetch vendor/zig-regex-0.2.2.tar.gz
 ```
 
 Compare the printed hash with `PACKAGE_INFO.txt`, which also records the source
 revision. Add a `.regex` entry to `build.zig.zon` dependencies with
-`.url = "file:vendor/zig-regex-0.2.1.tar.gz"` and `.hash` set to that verified
+`.url = "file:vendor/zig-regex-0.2.2.tar.gz"` and `.hash` set to that verified
 hash. Use a filesystem path for the fetch command and a relative `file:` URL in
 the dependency manifest. Commit the archive and manifest together.
 For a local checkout next to your project, add this entry to the existing
