@@ -1,5 +1,4 @@
 const std = @import("std");
-const compat = @import("../compat.zig");
 const parser = @import("../parser.zig");
 const literal_mod = @import("literal.zig");
 const unicode = @import("unicode.zig");
@@ -182,7 +181,7 @@ fn applyScopedCaseFoldNode(
     node_id: NodeId,
     enabled: bool,
 ) CaseFoldError!void {
-    switch (hir.nodes[compat.backingInt(node_id)]) {
+    switch (hir.nodes[@backingInt(node_id)]) {
         .group => |group| try applyScopedCaseFoldNode(allocator, hir, group.child, enabled),
         .case_fold_group => |group| try applyScopedCaseFoldNode(allocator, hir, group.child, group.enabled),
         .concat => |children| for (children) |child| try applyScopedCaseFoldNode(allocator, hir, child, enabled),
@@ -193,7 +192,7 @@ fn applyScopedCaseFoldNode(
 
     if (!enabled) return;
 
-    const node = &hir.nodes[compat.backingInt(node_id)];
+    const node = &hir.nodes[@backingInt(node_id)];
     switch (node.*) {
         .literal => |cp| {
             const folded = try foldedLiteralClass(allocator, cp);
@@ -229,7 +228,7 @@ fn lowerNode(
     node_id: parser.NodeId,
     out: *std.ArrayList(Node),
 ) LowerError!NodeId {
-    const node = ast.nodes[compat.backingInt(node_id)];
+    const node = ast.nodes[@backingInt(node_id)];
     const lowered: Node = switch (node) {
         .empty => .empty,
         .literal => |cp| .{ .literal = cp },
@@ -271,7 +270,7 @@ fn lowerNode(
 
     errdefer deinitNode(allocator, lowered);
     try out.append(allocator, lowered);
-    return compat.fromBackingInt(NodeId, @intCast(out.items.len - 1));
+    return @as(NodeId, @fromBackingInt(@intCast(out.items.len - 1)));
 }
 
 fn lowerChildren(
@@ -340,7 +339,7 @@ fn extractPrefix(allocator: std.mem.Allocator, nodes: []const Node, root: NodeId
 }
 
 fn prefixForNode(allocator: std.mem.Allocator, nodes: []const Node, node_id: NodeId) LowerError!Prefix {
-    switch (nodes[compat.backingInt(node_id)]) {
+    switch (nodes[@backingInt(node_id)]) {
         .empty => return .{
             .exact = true,
             .bytes = try allocator.alloc(u8, 0),
@@ -534,7 +533,7 @@ test "HIR lowering preserves shape and extracts prefix analysis" {
     defer hir.deinit(testing.allocator);
 
     try testing.expectEqual(@as(u32, 0), hir.capture_count);
-    try testing.expectEqual(.alternation, std.meta.activeTag(hir.nodes[compat.backingInt(hir.root)]));
+    try testing.expectEqual(.alternation, std.meta.activeTag(hir.nodes[@backingInt(hir.root)]));
     try testing.expectEqualStrings("ab", hir.prefix.bytes);
     try testing.expect(!hir.prefix.exact);
     try testing.expectEqual(@as(usize, 1), hir.literals.len);
@@ -571,11 +570,11 @@ test "HIR lowering preserves capture groups" {
     try testing.expectEqual(@as(usize, 2), hir.capture_names.len);
     try testing.expectEqual(@as(?[]const u8, null), hir.capture_names[0]);
     try testing.expectEqual(@as(?[]const u8, null), hir.capture_names[1]);
-    const root = hir.nodes[compat.backingInt(hir.root)].concat;
-    try testing.expectEqual(.group, std.meta.activeTag(hir.nodes[compat.backingInt(root[0])]));
-    try testing.expectEqual(@as(u32, 0), hir.nodes[compat.backingInt(root[0])].group.index);
-    try testing.expectEqual(.group, std.meta.activeTag(hir.nodes[compat.backingInt(root[1])]));
-    try testing.expectEqual(@as(u32, 1), hir.nodes[compat.backingInt(root[1])].group.index);
+    const root = hir.nodes[@backingInt(hir.root)].concat;
+    try testing.expectEqual(.group, std.meta.activeTag(hir.nodes[@backingInt(root[0])]));
+    try testing.expectEqual(@as(u32, 0), hir.nodes[@backingInt(root[0])].group.index);
+    try testing.expectEqual(.group, std.meta.activeTag(hir.nodes[@backingInt(root[1])]));
+    try testing.expectEqual(@as(u32, 1), hir.nodes[@backingInt(root[1])].group.index);
 }
 
 test "HIR lowering preserves named capture metadata" {

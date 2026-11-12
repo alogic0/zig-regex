@@ -30,15 +30,13 @@ cd ../..
 git diff --check
 ```
 
-Repeat the provider, Wasm and package checks with the exact Zig 0.15.2 executable
-for changes in the compatibility core. The default formatter remains 0.17.0;
-preserve the narrow enum-alias formatter guard in `src/compat.zig`.
+Use Zig 0.17.0 for builds, formatting and version tooling. Do not add
+compatibility code or CI coverage for older Zig releases.
 Wasm execution uses Node.js 18 or newer. Compiler-only `check` needs no Node.
 Keep fixes separate from source moves and new syntax. The initial qualified
-targets are Linux x86_64 and freestanding Wasm on both qualified compilers;
-additional platforms need actual
-target runtime evidence. For packaging changes, also run the archive-consumer
-check in [RELEASING.md](RELEASING.md) on both supported compilers.
+targets are Linux x86_64 and freestanding Wasm on Zig 0.17.0; additional
+platforms need actual target runtime evidence. For packaging changes, also
+run the archive-consumer check in [RELEASING.md](RELEASING.md).
 
 Version tooling uses the pinned Zig 0.17.0 compiler. For changes to its wrapper,
 configuration or vendored sources, run these checks from the repository root:

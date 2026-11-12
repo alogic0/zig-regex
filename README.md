@@ -3,7 +3,7 @@
 Dependency-free regex library for Zig with Unicode support, captures, byte
 offsets, and explicit allocator ownership.
 
-Version **0.2.1** supports Zig **0.17.0** and **0.15.2**. The package exports one
+Version **0.2.1** requires Zig **0.17.0**. The package exports one
 module, `regex`, which has no package, C-library or IO dependencies. Generated
 Unicode data is included; normal builds do not download anything.
 
@@ -48,9 +48,8 @@ zig fetch vendor/zig-regex-0.2.1.tar.gz
 Compare the printed hash with `PACKAGE_INFO.txt`, which also records the source
 revision. Add a `.regex` entry to `build.zig.zon` dependencies with
 `.url = "file:vendor/zig-regex-0.2.1.tar.gz"` and `.hash` set to that verified
-hash. Use a filesystem path for the fetch command: relative `file:` URLs resolve
-correctly in dependency manifests, but direct fetch handling differs between
-the qualified compilers. Commit the archive and manifest together.
+hash. Use a filesystem path for the fetch command and a relative `file:` URL in
+the dependency manifest. Commit the archive and manifest together.
 For a local checkout next to your project, add this entry to the existing
 `.dependencies` in `build.zig.zon`:
 
@@ -120,8 +119,8 @@ and workload limits. See [DESIGN.md](DESIGN.md) for ownership and compatibility.
 
 ## Check
 
-Use the default compiler in [`.zigversion`](.zigversion). Repeat with the exact
-Zig 0.15.2 executable when checking its supported compatibility boundary:
+Use the exact Zig 0.17.0 compiler pinned in [`.zigversion`](.zigversion).
+Older Zig releases are unsupported.
 
 ```sh
 zig build test check example --summary all
@@ -143,8 +142,8 @@ zero on success. Compilation alone does not establish target runtime support.
 dependency and is not required to compile or use the library.
 The isolated package caller checks that users need no private source imports.
 
-The qualification targets are Linux x86_64 and freestanding Wasm on Zig 0.15.2
-and 0.17.0. Other native platforms and Zig 0.16 remain unqualified.
+The qualification targets are Linux x86_64 and freestanding Wasm on Zig 0.17.0.
+Other native platforms and compiler versions remain unqualified.
 See [NOTICE](NOTICE) for
 source provenance. Code uses [MIT](LICENSE); generated Unicode data uses
 [Unicode License V3](UNICODE-LICENSE).

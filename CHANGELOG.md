@@ -2,11 +2,14 @@
 
 ## Unreleased
 
+- Require Zig 0.17.0 for the library, package caller, tooling and CI. Remove
+  the older-compiler enum-conversion compatibility layer and use the pinned
+  compiler's builtins directly.
 - Add a pinned `zig-package-version` development dependency, a standalone
   wrapper and `versions.zon` for the manifest and current README markers.
 - Reject inconsistent versions during release preparation and check version
   updates in disposable directories. The regex module retains its existing
-  dependency and compiler boundaries.
+  runtime dependency boundary.
 
 ## 0.2.1 — 2026-11-11
 

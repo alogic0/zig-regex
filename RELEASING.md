@@ -83,15 +83,13 @@ regex_dist=zig-out/dist
 regex_archive=$(sed -n 's/^archive=//p' "$regex_dist/PACKAGE_INFO.txt")
 regex_hash=$(sed -n 's/^package_hash=//p' "$regex_dist/PACKAGE_INFO.txt")
 ./tools/check-package.sh "$regex_dist/$regex_archive" "$regex_hash"
-REGEX_ZIG_EXE=/absolute/path/to/zig-0.15.2/zig \
-  ./tools/check-package.sh "$regex_dist/$regex_archive" "$regex_hash"
 ```
 
 Set `regex_dist` to your chosen output directory if using a separate one.
 The checker copies the package fixture into a temporary directory, replaces
 its path dependency with the vendored archive URL and hash, and runs Debug
-and ReleaseSafe with separate empty caches. CI runs this check on both
-supported compilers. It exercises dependency fetching and the published
+and ReleaseSafe with separate empty caches. CI runs this check with the pinned
+Zig 0.17.0 compiler. It exercises dependency fetching and the published
 module boundary without access to a sibling source checkout.
 
 ## Share
@@ -119,8 +117,7 @@ Recipients can verify `sha256sum --check SHA256SUMS`, copy the archive into thei
 own `vendor/` directory and run `zig fetch vendor/zig-regex-VERSION.tar.gz`.
 Compare the printed hash with `PACKAGE_INFO.txt`, then follow `README.md` to add
 the manifest's relative `file:` URL and verified hash. The fetch command takes a
-filesystem path; direct relative `file:` fetch handling differs between the
-qualified compilers. Verify the actual consumer build with an empty global
+filesystem path. Verify the actual consumer build with an empty global
 cache, then commit the archive and manifest together. A hosted URL may
 replace the `file:` URL once those exact bytes are available at an immutable
 location. The Zig hash remains the same for the same admitted package files.

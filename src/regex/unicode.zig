@@ -1,5 +1,4 @@
 const std = @import("std");
-const compat = @import("../compat.zig");
 const generated = @import("unicode_props_generated.zig");
 
 pub const Error = error{
@@ -230,7 +229,7 @@ pub const Strategy = struct {
     pub fn hasProperty(cp: u32, property: Property) bool {
         if (scriptExtensionsSpecForProperty(property)) |spec| {
             const matched = inRanges(cp, spec.ranges);
-            if (compat.backingInt(property) == generated.script_extensions_unknown_property_id) {
+            if (@backingInt(property) == generated.script_extensions_unknown_property_id) {
                 return matched or
                     inRanges(cp, &generated.unassigned_ranges) or
                     inRanges(cp, &generated.private_use_ranges) or
@@ -241,7 +240,7 @@ pub const Strategy = struct {
 
         if (scriptSpecForProperty(property)) |spec| {
             const matched = inRanges(cp, spec.ranges);
-            if (compat.backingInt(property) == generated.script_unknown_property_id) {
+            if (@backingInt(property) == generated.script_unknown_property_id) {
                 return matched or
                     inRanges(cp, &generated.unassigned_ranges) or
                     inRanges(cp, &generated.private_use_ranges) or
@@ -520,7 +519,7 @@ fn lookupScriptExtensionsProperty(name: []const u8) ?Property {
 fn lookupScriptName(name: []const u8) ?Property {
     for (generated.script_specs) |spec| {
         if (propertyNameEq(name, spec.long_name) or propertyNameEq(name, spec.short_name)) {
-            return compat.fromBackingInt(Property, @intCast(spec.property_id));
+            return @as(Property, @fromBackingInt(@intCast(spec.property_id)));
         }
     }
     return null;
@@ -529,14 +528,14 @@ fn lookupScriptName(name: []const u8) ?Property {
 fn lookupScriptExtensionsName(name: []const u8) ?Property {
     for (generated.script_extensions_specs) |spec| {
         if (propertyNameEq(name, spec.long_name) or propertyNameEq(name, spec.short_name)) {
-            return compat.fromBackingInt(Property, @intCast(spec.property_id));
+            return @as(Property, @fromBackingInt(@intCast(spec.property_id)));
         }
     }
     return null;
 }
 
 fn scriptSpecForProperty(property: Property) ?generated.ScriptSpec {
-    const property_id = compat.backingInt(property);
+    const property_id = @backingInt(property);
     if (property_id < script_property_base) return null;
     const index = property_id - script_property_base;
     if (index >= generated.script_specs.len) return null;
@@ -544,7 +543,7 @@ fn scriptSpecForProperty(property: Property) ?generated.ScriptSpec {
 }
 
 fn scriptExtensionsSpecForProperty(property: Property) ?generated.ScriptSpec {
-    const property_id = compat.backingInt(property);
+    const property_id = @backingInt(property);
     if (property_id < script_extensions_property_base) return null;
     const index = property_id - script_extensions_property_base;
     if (index >= generated.script_extensions_specs.len) return null;

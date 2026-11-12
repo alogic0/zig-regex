@@ -32,11 +32,10 @@ Comparison with the other inventoried copies found:
 - Generated Unicode-table differences are formatting changes in empty arrays.
 
 The initial package targeted the pinned Zig 0.17.0 toolchain. Version 0.2.0
-also qualifies the pure core on Zig 0.15.2 so a consumer can retain its existing
-CLI/IO toolchain. `compat.zig` isolates enum-conversion aliases understood by
-both compilers; its narrow formatter guard prevents the default formatter from
-renaming them into 0.17-only syntax. No application or runtime dependency is
-introduced. The native example uses an explicit allocator and portable entrypoint.
+also qualified the pure core on Zig 0.15.2. Current development requires Zig
+0.17.0 and uses its enum-conversion builtins directly; the earlier compatibility
+module and formatter guard have been removed. Older Zig releases are unsupported.
+The native example uses an explicit allocator and portable entrypoint.
 The optional SIMD prefilter remains disabled by default, matching the extraction
 source. A per-compilation `simd_prefilter` choice preserves an existing caller's
 opt-in behavior without importing application build options into the provider.
@@ -87,7 +86,7 @@ Release version synchronization is a development dependency: an unmodified
 `zig-package-version` snapshot under `tools/vendor`, pinned by revision and
 SHA-256 receipts. The wrapper runs with Zig 0.17.0; `versions.zon` owns this
 repository's file and marker choices. It checks release metadata without
-joining the regex module's build graph or its Zig 0.15.2 compatibility boundary.
+joining the regex module's build graph. Both use the pinned Zig 0.17.0 compiler.
 Archive preparation rejects mismatched current versions, and setter acceptance
 tests run only in disposable directories.
 

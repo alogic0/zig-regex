@@ -1,5 +1,4 @@
 const std = @import("std");
-const compat = @import("compat.zig");
 const lexer_mod = @import("lexer.zig");
 const unicode = @import("regex/unicode.zig");
 
@@ -735,7 +734,7 @@ pub const Parser = struct {
     }
 
     fn wrapCaseFoldOverride(self: *Parser, node_id: NodeId) !NodeId {
-        if (std.meta.activeTag(self.nodes.items[compat.backingInt(node_id)]) == .empty) return node_id;
+        if (std.meta.activeTag(self.nodes.items[@backingInt(node_id)]) == .empty) return node_id;
         if (self.case_fold_override) |enabled| {
             return self.push(.{ .case_fold_group = .{
                 .enabled = enabled,
@@ -834,7 +833,7 @@ pub const Parser = struct {
     fn push(self: *Parser, node: Node) !NodeId {
         errdefer deinitNode(self.allocator, node);
         try self.nodes.append(self.allocator, node);
-        return compat.fromBackingInt(NodeId, @intCast(self.nodes.items.len - 1));
+        return @as(NodeId, @fromBackingInt(@intCast(self.nodes.items.len - 1)));
     }
 
     fn parseClassSetOperator(self: *Parser) ParseError!ClassSetOp {
@@ -934,17 +933,17 @@ test "Parser builds an AST for grouped alternation and quantifiers" {
 
     try testing.expect(ast.nodes.len > 0);
     try testing.expectEqual(@as(u32, 1), ast.capture_count);
-    try testing.expectEqual(.concat, std.meta.activeTag(ast.nodes[compat.backingInt(ast.root)]));
+    try testing.expectEqual(.concat, std.meta.activeTag(ast.nodes[@backingInt(ast.root)]));
 
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
+    const root = ast.nodes[@backingInt(ast.root)].concat;
     try testing.expectEqual(@as(usize, 2), root.len);
 
-    const repeated = ast.nodes[compat.backingInt(root[0])].repetition;
+    const repeated = ast.nodes[@backingInt(root[0])].repetition;
     try testing.expectEqual(@as(u32, 1), repeated.quantifier.min);
     try testing.expectEqual(@as(?u32, null), repeated.quantifier.max);
-    try testing.expectEqual(.group, std.meta.activeTag(ast.nodes[compat.backingInt(repeated.child)]));
+    try testing.expectEqual(.group, std.meta.activeTag(ast.nodes[@backingInt(repeated.child)]));
 
-    const optional = ast.nodes[compat.backingInt(root[1])].repetition;
+    const optional = ast.nodes[@backingInt(root[1])].repetition;
     try testing.expectEqual(@as(u32, 0), optional.quantifier.min);
     try testing.expectEqual(@as(?u32, 1), optional.quantifier.max);
 }
@@ -956,10 +955,10 @@ test "Parser accepts empty alternation branches" {
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    try testing.expectEqual(.alternation, std.meta.activeTag(ast.nodes[compat.backingInt(ast.root)]));
-    const branches = ast.nodes[compat.backingInt(ast.root)].alternation;
+    try testing.expectEqual(.alternation, std.meta.activeTag(ast.nodes[@backingInt(ast.root)]));
+    const branches = ast.nodes[@backingInt(ast.root)].alternation;
     try testing.expectEqual(@as(usize, 2), branches.len);
-    try testing.expectEqual(.empty, std.meta.activeTag(ast.nodes[compat.backingInt(branches[1])]));
+    try testing.expectEqual(.empty, std.meta.activeTag(ast.nodes[@backingInt(branches[1])]));
 }
 
 test "Parser supports counted repetition" {
@@ -969,18 +968,18 @@ test "Parser supports counted repetition" {
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
+    const root = ast.nodes[@backingInt(ast.root)].concat;
     try testing.expectEqual(@as(usize, 3), root.len);
 
-    const first = ast.nodes[compat.backingInt(root[0])].repetition.quantifier;
+    const first = ast.nodes[@backingInt(root[0])].repetition.quantifier;
     try testing.expectEqual(@as(u32, 2), first.min);
     try testing.expectEqual(@as(?u32, 4), first.max);
 
-    const second = ast.nodes[compat.backingInt(root[1])].repetition.quantifier;
+    const second = ast.nodes[@backingInt(root[1])].repetition.quantifier;
     try testing.expectEqual(@as(u32, 3), second.min);
     try testing.expectEqual(@as(?u32, 3), second.max);
 
-    const third = ast.nodes[compat.backingInt(root[2])].repetition.quantifier;
+    const third = ast.nodes[@backingInt(root[2])].repetition.quantifier;
     try testing.expectEqual(@as(u32, 5), third.min);
     try testing.expectEqual(@as(?u32, null), third.max);
 }
@@ -992,29 +991,29 @@ test "Parser supports lazy quantifiers" {
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
+    const root = ast.nodes[@backingInt(ast.root)].concat;
     try testing.expectEqual(@as(usize, 6), root.len);
 
-    const first = ast.nodes[compat.backingInt(root[0])].repetition.quantifier;
+    const first = ast.nodes[@backingInt(root[0])].repetition.quantifier;
     try testing.expectEqual(false, first.greedy);
 
-    const second = ast.nodes[compat.backingInt(root[1])].repetition.quantifier;
+    const second = ast.nodes[@backingInt(root[1])].repetition.quantifier;
     try testing.expectEqual(false, second.greedy);
 
-    const third = ast.nodes[compat.backingInt(root[2])].repetition.quantifier;
+    const third = ast.nodes[@backingInt(root[2])].repetition.quantifier;
     try testing.expectEqual(false, third.greedy);
 
-    const fourth = ast.nodes[compat.backingInt(root[3])].repetition.quantifier;
+    const fourth = ast.nodes[@backingInt(root[3])].repetition.quantifier;
     try testing.expectEqual(@as(u32, 2), fourth.min);
     try testing.expectEqual(@as(?u32, 4), fourth.max);
     try testing.expectEqual(false, fourth.greedy);
 
-    const fifth = ast.nodes[compat.backingInt(root[4])].repetition.quantifier;
+    const fifth = ast.nodes[@backingInt(root[4])].repetition.quantifier;
     try testing.expectEqual(@as(u32, 3), fifth.min);
     try testing.expectEqual(@as(?u32, 3), fifth.max);
     try testing.expectEqual(false, fifth.greedy);
 
-    const sixth = ast.nodes[compat.backingInt(root[5])].repetition.quantifier;
+    const sixth = ast.nodes[@backingInt(root[5])].repetition.quantifier;
     try testing.expectEqual(@as(u32, 5), sixth.min);
     try testing.expectEqual(@as(?u32, null), sixth.max);
     try testing.expectEqual(false, sixth.greedy);
@@ -1027,7 +1026,7 @@ test "Parser supports character classes and ranges" {
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    const class = ast.nodes[compat.backingInt(ast.root)].char_class;
+    const class = ast.nodes[@backingInt(ast.root)].char_class;
     try testing.expect(class.negated);
     try testing.expectEqual(@as(usize, 3), class.items.len);
     try testing.expectEqualDeep(ClassItem{ .range = .{ .start = 'a', .end = 'z' } }, class.items[0]);
@@ -1072,15 +1071,15 @@ test "Parser supports non-capturing groups without incrementing capture count" {
 
     try testing.expectEqual(@as(u32, 1), ast.capture_count);
 
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
+    const root = ast.nodes[@backingInt(ast.root)].concat;
     try testing.expectEqual(@as(usize, 2), root.len);
-    try testing.expectEqual(.concat, std.meta.activeTag(ast.nodes[compat.backingInt(root[0])]));
-    const non_capturing = ast.nodes[compat.backingInt(root[0])].concat;
+    try testing.expectEqual(.concat, std.meta.activeTag(ast.nodes[@backingInt(root[0])]));
+    const non_capturing = ast.nodes[@backingInt(root[0])].concat;
     try testing.expectEqual(@as(usize, 2), non_capturing.len);
-    try testing.expectEqualDeep(Node{ .literal = 'a' }, ast.nodes[compat.backingInt(non_capturing[0])]);
-    try testing.expectEqualDeep(Node{ .literal = 'b' }, ast.nodes[compat.backingInt(non_capturing[1])]);
-    try testing.expectEqual(.group, std.meta.activeTag(ast.nodes[compat.backingInt(root[1])]));
-    try testing.expectEqual(@as(u32, 0), ast.nodes[compat.backingInt(root[1])].group.index);
+    try testing.expectEqualDeep(Node{ .literal = 'a' }, ast.nodes[@backingInt(non_capturing[0])]);
+    try testing.expectEqualDeep(Node{ .literal = 'b' }, ast.nodes[@backingInt(non_capturing[1])]);
+    try testing.expectEqual(.group, std.meta.activeTag(ast.nodes[@backingInt(root[1])]));
+    try testing.expectEqual(@as(u32, 0), ast.nodes[@backingInt(root[1])].group.index);
 }
 
 test "Parser supports named capture groups without changing numeric order" {
@@ -1095,11 +1094,11 @@ test "Parser supports named capture groups without changing numeric order" {
     try testing.expectEqualStrings("word", ast.capture_names[0].?);
     try testing.expectEqual(@as(?[]const u8, null), ast.capture_names[1]);
 
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
-    try testing.expectEqual(.group, std.meta.activeTag(ast.nodes[compat.backingInt(root[0])]));
-    try testing.expectEqual(@as(u32, 0), ast.nodes[compat.backingInt(root[0])].group.index);
-    try testing.expectEqual(.group, std.meta.activeTag(ast.nodes[compat.backingInt(root[1])]));
-    try testing.expectEqual(@as(u32, 1), ast.nodes[compat.backingInt(root[1])].group.index);
+    const root = ast.nodes[@backingInt(ast.root)].concat;
+    try testing.expectEqual(.group, std.meta.activeTag(ast.nodes[@backingInt(root[0])]));
+    try testing.expectEqual(@as(u32, 0), ast.nodes[@backingInt(root[0])].group.index);
+    try testing.expectEqual(.group, std.meta.activeTag(ast.nodes[@backingInt(root[1])]));
+    try testing.expectEqual(@as(u32, 1), ast.nodes[@backingInt(root[1])].group.index);
 }
 
 test "Parser rejects invalid named capture groups" {
@@ -1123,19 +1122,19 @@ test "Parser supports inline Unicode mode groups" {
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
+    const root = ast.nodes[@backingInt(ast.root)].concat;
     try testing.expectEqual(@as(usize, 2), root.len);
 
-    const ascii_rep = ast.nodes[compat.backingInt(root[0])].repetition;
-    try testing.expectEqual(.char_class, std.meta.activeTag(ast.nodes[compat.backingInt(ascii_rep.child)]));
-    const ascii_class = ast.nodes[compat.backingInt(ascii_rep.child)].char_class;
+    const ascii_rep = ast.nodes[@backingInt(root[0])].repetition;
+    try testing.expectEqual(.char_class, std.meta.activeTag(ast.nodes[@backingInt(ascii_rep.child)]));
+    const ascii_class = ast.nodes[@backingInt(ascii_rep.child)].char_class;
     try testing.expectEqual(@as(usize, 4), ascii_class.items.len);
 
-    const unicode_rep = ast.nodes[compat.backingInt(root[1])].repetition;
+    const unicode_rep = ast.nodes[@backingInt(root[1])].repetition;
     try testing.expectEqualDeep(Node{ .unicode_property = .{
         .property = .shorthand_word,
         .negated = false,
-    } }, ast.nodes[compat.backingInt(unicode_rep.child)]);
+    } }, ast.nodes[@backingInt(unicode_rep.child)]);
 }
 
 test "Parser rejects Unicode properties inside ASCII mode groups" {
@@ -1152,11 +1151,11 @@ test "Parser supports escaped metacharacters and class edge literals" {
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    try testing.expectEqual(.concat, std.meta.activeTag(ast.nodes[compat.backingInt(ast.root)]));
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
+    try testing.expectEqual(.concat, std.meta.activeTag(ast.nodes[@backingInt(ast.root)]));
+    const root = ast.nodes[@backingInt(ast.root)].concat;
     try testing.expectEqual(@as(usize, 14), root.len);
 
-    const class = ast.nodes[compat.backingInt(root[13])].char_class;
+    const class = ast.nodes[@backingInt(root[13])].char_class;
     try testing.expect(!class.negated);
     try testing.expectEqual(@as(usize, 3), class.items.len);
     try testing.expectEqualDeep(ClassItem{ .literal = '-' }, class.items[0]);
@@ -1172,18 +1171,18 @@ test "Parser treats comma and hyphen as literals outside special contexts" {
     defer ast.deinit(testing.allocator);
 
     try testing.expectEqual(@as(usize, 6), ast.nodes.len);
-    const root = ast.nodes[compat.backingInt(ast.root)];
+    const root = ast.nodes[@backingInt(ast.root)];
     const children = switch (root) {
         .concat => |children| children,
         else => return error.TestUnexpectedResult,
     };
 
     try testing.expectEqual(@as(usize, 5), children.len);
-    try testing.expectEqualDeep(Node{ .literal = 'a' }, ast.nodes[compat.backingInt(children[0])]);
-    try testing.expectEqualDeep(Node{ .literal = ',' }, ast.nodes[compat.backingInt(children[1])]);
-    try testing.expectEqualDeep(Node{ .literal = 'b' }, ast.nodes[compat.backingInt(children[2])]);
-    try testing.expectEqualDeep(Node{ .literal = '-' }, ast.nodes[compat.backingInt(children[3])]);
-    try testing.expectEqualDeep(Node{ .literal = 'c' }, ast.nodes[compat.backingInt(children[4])]);
+    try testing.expectEqualDeep(Node{ .literal = 'a' }, ast.nodes[@backingInt(children[0])]);
+    try testing.expectEqualDeep(Node{ .literal = ',' }, ast.nodes[@backingInt(children[1])]);
+    try testing.expectEqualDeep(Node{ .literal = 'b' }, ast.nodes[@backingInt(children[2])]);
+    try testing.expectEqualDeep(Node{ .literal = '-' }, ast.nodes[@backingInt(children[3])]);
+    try testing.expectEqualDeep(Node{ .literal = 'c' }, ast.nodes[@backingInt(children[4])]);
 }
 
 test "Parser rejects malformed classes and quantifiers with spans" {
@@ -1212,11 +1211,11 @@ test "Parser tracks capture groups in source order" {
     defer ast.deinit(testing.allocator);
 
     try testing.expectEqual(@as(u32, 3), ast.capture_count);
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
-    try testing.expectEqual(.group, std.meta.activeTag(ast.nodes[compat.backingInt(root[0])]));
-    try testing.expectEqual(@as(u32, 0), ast.nodes[compat.backingInt(root[0])].group.index);
-    try testing.expectEqual(.group, std.meta.activeTag(ast.nodes[compat.backingInt(root[1])]));
-    try testing.expectEqual(@as(u32, 1), ast.nodes[compat.backingInt(root[1])].group.index);
+    const root = ast.nodes[@backingInt(ast.root)].concat;
+    try testing.expectEqual(.group, std.meta.activeTag(ast.nodes[@backingInt(root[0])]));
+    try testing.expectEqual(@as(u32, 0), ast.nodes[@backingInt(root[0])].group.index);
+    try testing.expectEqual(.group, std.meta.activeTag(ast.nodes[@backingInt(root[1])]));
+    try testing.expectEqual(@as(u32, 1), ast.nodes[@backingInt(root[1])].group.index);
 }
 
 test "Parser lowers shorthand character classes to Unicode property nodes" {
@@ -1226,38 +1225,38 @@ test "Parser lowers shorthand character classes to Unicode property nodes" {
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
+    const root = ast.nodes[@backingInt(ast.root)].concat;
     try testing.expectEqual(@as(usize, 6), root.len);
 
     try testing.expectEqualDeep(Node{ .unicode_property = .{
         .property = .decimal_number,
         .negated = false,
-    } }, ast.nodes[compat.backingInt(root[0])]);
+    } }, ast.nodes[@backingInt(root[0])]);
 
     try testing.expectEqualDeep(Node{ .unicode_property = .{
         .property = .decimal_number,
         .negated = true,
-    } }, ast.nodes[compat.backingInt(root[1])]);
+    } }, ast.nodes[@backingInt(root[1])]);
 
     try testing.expectEqualDeep(Node{ .unicode_property = .{
         .property = .shorthand_word,
         .negated = false,
-    } }, ast.nodes[compat.backingInt(root[2])]);
+    } }, ast.nodes[@backingInt(root[2])]);
 
     try testing.expectEqualDeep(Node{ .unicode_property = .{
         .property = .shorthand_word,
         .negated = true,
-    } }, ast.nodes[compat.backingInt(root[3])]);
+    } }, ast.nodes[@backingInt(root[3])]);
 
     try testing.expectEqualDeep(Node{ .unicode_property = .{
         .property = .shorthand_whitespace,
         .negated = false,
-    } }, ast.nodes[compat.backingInt(root[4])]);
+    } }, ast.nodes[@backingInt(root[4])]);
 
     try testing.expectEqualDeep(Node{ .unicode_property = .{
         .property = .shorthand_whitespace,
         .negated = true,
-    } }, ast.nodes[compat.backingInt(root[5])]);
+    } }, ast.nodes[@backingInt(root[5])]);
 }
 
 test "Parser supports word boundary escapes" {
@@ -1267,15 +1266,15 @@ test "Parser supports word boundary escapes" {
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
+    const root = ast.nodes[@backingInt(ast.root)].concat;
     try testing.expectEqual(@as(usize, 5), root.len);
-    try testing.expectEqual(.word_boundary, std.meta.activeTag(ast.nodes[compat.backingInt(root[0])]));
-    try testing.expect(!ast.nodes[compat.backingInt(root[0])].word_boundary.ascii_only);
-    try testing.expectEqualDeep(Node{ .literal = 'f' }, ast.nodes[compat.backingInt(root[1])]);
-    try testing.expectEqualDeep(Node{ .literal = 'o' }, ast.nodes[compat.backingInt(root[2])]);
-    try testing.expectEqualDeep(Node{ .literal = 'o' }, ast.nodes[compat.backingInt(root[3])]);
-    try testing.expectEqual(.not_word_boundary, std.meta.activeTag(ast.nodes[compat.backingInt(root[4])]));
-    try testing.expect(!ast.nodes[compat.backingInt(root[4])].not_word_boundary.ascii_only);
+    try testing.expectEqual(.word_boundary, std.meta.activeTag(ast.nodes[@backingInt(root[0])]));
+    try testing.expect(!ast.nodes[@backingInt(root[0])].word_boundary.ascii_only);
+    try testing.expectEqualDeep(Node{ .literal = 'f' }, ast.nodes[@backingInt(root[1])]);
+    try testing.expectEqualDeep(Node{ .literal = 'o' }, ast.nodes[@backingInt(root[2])]);
+    try testing.expectEqualDeep(Node{ .literal = 'o' }, ast.nodes[@backingInt(root[3])]);
+    try testing.expectEqual(.not_word_boundary, std.meta.activeTag(ast.nodes[@backingInt(root[4])]));
+    try testing.expect(!ast.nodes[@backingInt(root[4])].not_word_boundary.ascii_only);
 }
 
 test "Parser supports half-word-boundary escapes" {
@@ -1285,12 +1284,12 @@ test "Parser supports half-word-boundary escapes" {
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
+    const root = ast.nodes[@backingInt(ast.root)].concat;
     try testing.expectEqual(@as(usize, 5), root.len);
-    try testing.expectEqual(.word_boundary_start_half, std.meta.activeTag(ast.nodes[compat.backingInt(root[0])]));
-    try testing.expectEqual(.word_boundary_end_half, std.meta.activeTag(ast.nodes[compat.backingInt(root[4])]));
-    try testing.expect(!ast.nodes[compat.backingInt(root[0])].word_boundary_start_half.ascii_only);
-    try testing.expect(!ast.nodes[compat.backingInt(root[4])].word_boundary_end_half.ascii_only);
+    try testing.expectEqual(.word_boundary_start_half, std.meta.activeTag(ast.nodes[@backingInt(root[0])]));
+    try testing.expectEqual(.word_boundary_end_half, std.meta.activeTag(ast.nodes[@backingInt(root[4])]));
+    try testing.expect(!ast.nodes[@backingInt(root[0])].word_boundary_start_half.ascii_only);
+    try testing.expect(!ast.nodes[@backingInt(root[4])].word_boundary_end_half.ascii_only);
 }
 
 test "Parser supports basic class-set operators" {
@@ -1299,14 +1298,14 @@ test "Parser supports basic class-set operators" {
     var subtraction = try Parser.init(testing.allocator, "[\\w--\\p{ASCII}]");
     const subtraction_ast = try subtraction.parse();
     defer subtraction_ast.deinit(testing.allocator);
-    try testing.expectEqual(.char_class_set, std.meta.activeTag(subtraction_ast.nodes[compat.backingInt(subtraction_ast.root)]));
-    try testing.expectEqual(.subtraction, subtraction_ast.nodes[compat.backingInt(subtraction_ast.root)].char_class_set.op);
+    try testing.expectEqual(.char_class_set, std.meta.activeTag(subtraction_ast.nodes[@backingInt(subtraction_ast.root)]));
+    try testing.expectEqual(.subtraction, subtraction_ast.nodes[@backingInt(subtraction_ast.root)].char_class_set.op);
 
     var intersection = try Parser.init(testing.allocator, "[\\p{Greek}&&\\p{Uppercase}]");
     const intersection_ast = try intersection.parse();
     defer intersection_ast.deinit(testing.allocator);
-    try testing.expectEqual(.char_class_set, std.meta.activeTag(intersection_ast.nodes[compat.backingInt(intersection_ast.root)]));
-    try testing.expectEqual(.intersection, intersection_ast.nodes[compat.backingInt(intersection_ast.root)].char_class_set.op);
+    try testing.expectEqual(.char_class_set, std.meta.activeTag(intersection_ast.nodes[@backingInt(intersection_ast.root)]));
+    try testing.expectEqual(.intersection, intersection_ast.nodes[@backingInt(intersection_ast.root)].char_class_set.op);
 }
 
 test "Parser supports nested class-set expressions" {
@@ -1316,15 +1315,15 @@ test "Parser supports nested class-set expressions" {
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    const root = ast.nodes[compat.backingInt(ast.root)].char_class_set;
+    const root = ast.nodes[@backingInt(ast.root)].char_class_set;
     try testing.expectEqual(.subtraction, root.op);
-    try testing.expectEqual(.char_class, std.meta.activeTag(ast.nodes[compat.backingInt(root.lhs)]));
-    try testing.expectEqual(.char_class_set, std.meta.activeTag(ast.nodes[compat.backingInt(root.rhs)]));
+    try testing.expectEqual(.char_class, std.meta.activeTag(ast.nodes[@backingInt(root.lhs)]));
+    try testing.expectEqual(.char_class_set, std.meta.activeTag(ast.nodes[@backingInt(root.rhs)]));
 
-    const rhs = ast.nodes[compat.backingInt(root.rhs)].char_class_set;
+    const rhs = ast.nodes[@backingInt(root.rhs)].char_class_set;
     try testing.expectEqual(.intersection, rhs.op);
-    try testing.expectEqual(.char_class, std.meta.activeTag(ast.nodes[compat.backingInt(rhs.lhs)]));
-    try testing.expectEqual(.char_class, std.meta.activeTag(ast.nodes[compat.backingInt(rhs.rhs)]));
+    try testing.expectEqual(.char_class, std.meta.activeTag(ast.nodes[@backingInt(rhs.lhs)]));
+    try testing.expectEqual(.char_class, std.meta.activeTag(ast.nodes[@backingInt(rhs.rhs)]));
 }
 
 test "Parser supports inline case-fold groups" {
@@ -1334,12 +1333,12 @@ test "Parser supports inline case-fold groups" {
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
+    const root = ast.nodes[@backingInt(ast.root)].concat;
     try testing.expectEqual(@as(usize, 2), root.len);
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(root[0])]));
-    try testing.expect(ast.nodes[compat.backingInt(root[0])].case_fold_group.enabled);
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(root[1])]));
-    try testing.expect(!ast.nodes[compat.backingInt(root[1])].case_fold_group.enabled);
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(root[0])]));
+    try testing.expect(ast.nodes[@backingInt(root[0])].case_fold_group.enabled);
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(root[1])]));
+    try testing.expect(!ast.nodes[@backingInt(root[1])].case_fold_group.enabled);
 }
 
 test "Parser supports inline multiline and dotall groups" {
@@ -1349,23 +1348,23 @@ test "Parser supports inline multiline and dotall groups" {
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
+    const root = ast.nodes[@backingInt(ast.root)].concat;
     try testing.expectEqual(@as(usize, 4), root.len);
 
-    try testing.expect(ast.nodes[compat.backingInt(root[0])].concat.len >= 2);
-    const multiline_start = ast.nodes[compat.backingInt(ast.nodes[compat.backingInt(root[0])].concat[0])].anchor_start;
-    const multiline_end = ast.nodes[compat.backingInt(ast.nodes[compat.backingInt(root[0])].concat[2])].anchor_end;
+    try testing.expect(ast.nodes[@backingInt(root[0])].concat.len >= 2);
+    const multiline_start = ast.nodes[@backingInt(ast.nodes[@backingInt(root[0])].concat[0])].anchor_start;
+    const multiline_end = ast.nodes[@backingInt(ast.nodes[@backingInt(root[0])].concat[2])].anchor_end;
     try testing.expect(multiline_start.multiline);
     try testing.expect(multiline_end.multiline);
 
-    try testing.expectEqualDeep(Node{ .dot = .{ .matches_newline = true } }, ast.nodes[compat.backingInt(root[1])]);
+    try testing.expectEqualDeep(Node{ .dot = .{ .matches_newline = true } }, ast.nodes[@backingInt(root[1])]);
 
-    const ascii_start = ast.nodes[compat.backingInt(ast.nodes[compat.backingInt(root[2])].concat[0])].anchor_start;
-    const ascii_end = ast.nodes[compat.backingInt(ast.nodes[compat.backingInt(root[2])].concat[2])].anchor_end;
+    const ascii_start = ast.nodes[@backingInt(ast.nodes[@backingInt(root[2])].concat[0])].anchor_start;
+    const ascii_end = ast.nodes[@backingInt(ast.nodes[@backingInt(root[2])].concat[2])].anchor_end;
     try testing.expect(!ascii_start.multiline);
     try testing.expect(!ascii_end.multiline);
 
-    try testing.expectEqualDeep(Node{ .dot = .{ .matches_newline = false } }, ast.nodes[compat.backingInt(root[3])]);
+    try testing.expectEqualDeep(Node{ .dot = .{ .matches_newline = false } }, ast.nodes[@backingInt(root[3])]);
 }
 
 test "Parser supports unscoped inline flag toggles for the remainder of a group" {
@@ -1375,41 +1374,41 @@ test "Parser supports unscoped inline flag toggles for the remainder of a group"
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
+    const root = ast.nodes[@backingInt(ast.root)].concat;
     try testing.expect(root.len >= 11);
 
-    try testing.expectEqual(.empty, std.meta.activeTag(ast.nodes[compat.backingInt(root[0])]));
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(root[1])]));
-    try testing.expect(ast.nodes[compat.backingInt(root[1])].case_fold_group.enabled);
+    try testing.expectEqual(.empty, std.meta.activeTag(ast.nodes[@backingInt(root[0])]));
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(root[1])]));
+    try testing.expect(ast.nodes[@backingInt(root[1])].case_fold_group.enabled);
 
-    try testing.expectEqual(.empty, std.meta.activeTag(ast.nodes[compat.backingInt(root[2])]));
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(root[3])]));
-    try testing.expect(!ast.nodes[compat.backingInt(root[3])].case_fold_group.enabled);
+    try testing.expectEqual(.empty, std.meta.activeTag(ast.nodes[@backingInt(root[2])]));
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(root[3])]));
+    try testing.expect(!ast.nodes[@backingInt(root[3])].case_fold_group.enabled);
 
-    try testing.expectEqual(.empty, std.meta.activeTag(ast.nodes[compat.backingInt(root[4])]));
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(root[5])]));
-    try testing.expect(!ast.nodes[compat.backingInt(root[5])].case_fold_group.enabled);
+    try testing.expectEqual(.empty, std.meta.activeTag(ast.nodes[@backingInt(root[4])]));
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(root[5])]));
+    try testing.expect(!ast.nodes[@backingInt(root[5])].case_fold_group.enabled);
     try testing.expectEqualDeep(Node{ .unicode_property = .{
         .property = .shorthand_word,
         .negated = false,
-    } }, ast.nodes[compat.backingInt(ast.nodes[compat.backingInt(root[5])].case_fold_group.child)]);
+    } }, ast.nodes[@backingInt(ast.nodes[@backingInt(root[5])].case_fold_group.child)]);
 
-    try testing.expectEqual(.empty, std.meta.activeTag(ast.nodes[compat.backingInt(root[6])]));
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(root[7])]));
-    try testing.expect(!ast.nodes[compat.backingInt(root[7])].case_fold_group.enabled);
-    try testing.expectEqual(.char_class, std.meta.activeTag(ast.nodes[compat.backingInt(ast.nodes[compat.backingInt(root[7])].case_fold_group.child)]));
+    try testing.expectEqual(.empty, std.meta.activeTag(ast.nodes[@backingInt(root[6])]));
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(root[7])]));
+    try testing.expect(!ast.nodes[@backingInt(root[7])].case_fold_group.enabled);
+    try testing.expectEqual(.char_class, std.meta.activeTag(ast.nodes[@backingInt(ast.nodes[@backingInt(root[7])].case_fold_group.child)]));
 
-    try testing.expectEqual(.empty, std.meta.activeTag(ast.nodes[compat.backingInt(root[8])]));
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(root[9])]));
-    try testing.expect(ast.nodes[compat.backingInt(ast.nodes[compat.backingInt(root[9])].case_fold_group.child)].anchor_start.multiline);
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(root[10])]));
-    try testing.expectEqualDeep(Node{ .literal = 'a' }, ast.nodes[compat.backingInt(ast.nodes[compat.backingInt(root[10])].case_fold_group.child)]);
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(root[11])]));
-    try testing.expect(ast.nodes[compat.backingInt(ast.nodes[compat.backingInt(root[11])].case_fold_group.child)].anchor_end.multiline);
+    try testing.expectEqual(.empty, std.meta.activeTag(ast.nodes[@backingInt(root[8])]));
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(root[9])]));
+    try testing.expect(ast.nodes[@backingInt(ast.nodes[@backingInt(root[9])].case_fold_group.child)].anchor_start.multiline);
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(root[10])]));
+    try testing.expectEqualDeep(Node{ .literal = 'a' }, ast.nodes[@backingInt(ast.nodes[@backingInt(root[10])].case_fold_group.child)]);
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(root[11])]));
+    try testing.expect(ast.nodes[@backingInt(ast.nodes[@backingInt(root[11])].case_fold_group.child)].anchor_end.multiline);
 
-    try testing.expectEqual(.empty, std.meta.activeTag(ast.nodes[compat.backingInt(root[12])]));
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(root[13])]));
-    try testing.expectEqualDeep(Node{ .dot = .{ .matches_newline = true } }, ast.nodes[compat.backingInt(ast.nodes[compat.backingInt(root[13])].case_fold_group.child)]);
+    try testing.expectEqual(.empty, std.meta.activeTag(ast.nodes[@backingInt(root[12])]));
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(root[13])]));
+    try testing.expectEqualDeep(Node{ .dot = .{ .matches_newline = true } }, ast.nodes[@backingInt(ast.nodes[@backingInt(root[13])].case_fold_group.child)]);
 }
 
 test "Parser restores unscoped inline flag toggles at group boundaries" {
@@ -1419,14 +1418,14 @@ test "Parser restores unscoped inline flag toggles at group boundaries" {
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
+    const root = ast.nodes[@backingInt(ast.root)].concat;
     try testing.expectEqual(@as(usize, 2), root.len);
-    try testing.expectEqual(.group, std.meta.activeTag(ast.nodes[compat.backingInt(root[0])]));
-    try testing.expectEqual(.literal, std.meta.activeTag(ast.nodes[compat.backingInt(root[1])]));
-    try testing.expectEqualDeep(Node{ .literal = 'b' }, ast.nodes[compat.backingInt(root[1])]);
+    try testing.expectEqual(.group, std.meta.activeTag(ast.nodes[@backingInt(root[0])]));
+    try testing.expectEqual(.literal, std.meta.activeTag(ast.nodes[@backingInt(root[1])]));
+    try testing.expectEqualDeep(Node{ .literal = 'b' }, ast.nodes[@backingInt(root[1])]);
 
-    const inner = ast.nodes[compat.backingInt(ast.nodes[compat.backingInt(root[0])].group.child)].concat;
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(inner[1])]));
+    const inner = ast.nodes[@backingInt(ast.nodes[@backingInt(root[0])].group.child)].concat;
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(inner[1])]));
 }
 
 test "Parser supports grouped inline flag bundles" {
@@ -1436,28 +1435,28 @@ test "Parser supports grouped inline flag bundles" {
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
+    const root = ast.nodes[@backingInt(ast.root)].concat;
     try testing.expectEqual(@as(usize, 4), root.len);
 
-    const first = ast.nodes[compat.backingInt(root[0])].concat;
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(first[0])]));
-    try testing.expect(ast.nodes[compat.backingInt(ast.nodes[compat.backingInt(first[0])].case_fold_group.child)].anchor_start.multiline);
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(first[1])]));
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(first[2])]));
-    try testing.expect(ast.nodes[compat.backingInt(ast.nodes[compat.backingInt(first[2])].case_fold_group.child)].anchor_end.multiline);
+    const first = ast.nodes[@backingInt(root[0])].concat;
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(first[0])]));
+    try testing.expect(ast.nodes[@backingInt(ast.nodes[@backingInt(first[0])].case_fold_group.child)].anchor_start.multiline);
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(first[1])]));
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(first[2])]));
+    try testing.expect(ast.nodes[@backingInt(ast.nodes[@backingInt(first[2])].case_fold_group.child)].anchor_end.multiline);
 
-    const second = ast.nodes[compat.backingInt(root[1])].concat;
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(second[0])]));
-    try testing.expect(!ast.nodes[compat.backingInt(ast.nodes[compat.backingInt(second[0])].case_fold_group.child)].anchor_start.multiline);
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(second[1])]));
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(second[2])]));
-    try testing.expect(!ast.nodes[compat.backingInt(ast.nodes[compat.backingInt(second[2])].case_fold_group.child)].anchor_end.multiline);
+    const second = ast.nodes[@backingInt(root[1])].concat;
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(second[0])]));
+    try testing.expect(!ast.nodes[@backingInt(ast.nodes[@backingInt(second[0])].case_fold_group.child)].anchor_start.multiline);
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(second[1])]));
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(second[2])]));
+    try testing.expect(!ast.nodes[@backingInt(ast.nodes[@backingInt(second[2])].case_fold_group.child)].anchor_end.multiline);
 
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(root[2])]));
-    try testing.expectEqualDeep(Node{ .dot = .{ .matches_newline = true } }, ast.nodes[compat.backingInt(ast.nodes[compat.backingInt(root[2])].case_fold_group.child)]);
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(root[2])]));
+    try testing.expectEqualDeep(Node{ .dot = .{ .matches_newline = true } }, ast.nodes[@backingInt(ast.nodes[@backingInt(root[2])].case_fold_group.child)]);
 
-    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[compat.backingInt(root[3])]));
-    try testing.expectEqual(.char_class, std.meta.activeTag(ast.nodes[compat.backingInt(ast.nodes[compat.backingInt(root[3])].case_fold_group.child)]));
+    try testing.expectEqual(.case_fold_group, std.meta.activeTag(ast.nodes[@backingInt(root[3])]));
+    try testing.expectEqual(.char_class, std.meta.activeTag(ast.nodes[@backingInt(ast.nodes[@backingInt(root[3])].case_fold_group.child)]));
 }
 
 test "Parser decodes Unicode literal escapes as literals" {
@@ -1467,10 +1466,10 @@ test "Parser decodes Unicode literal escapes as literals" {
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
+    const root = ast.nodes[@backingInt(ast.root)].concat;
     try testing.expectEqual(@as(usize, 2), root.len);
-    try testing.expectEqualDeep(Node{ .literal = 0x0436 }, ast.nodes[compat.backingInt(root[0])]);
-    try testing.expectEqualDeep(Node{ .literal = 0x65E5 }, ast.nodes[compat.backingInt(root[1])]);
+    try testing.expectEqualDeep(Node{ .literal = 0x0436 }, ast.nodes[@backingInt(root[0])]);
+    try testing.expectEqualDeep(Node{ .literal = 0x65E5 }, ast.nodes[@backingInt(root[1])]);
 }
 
 test "Parser supports Unicode property escapes" {
@@ -1480,16 +1479,16 @@ test "Parser supports Unicode property escapes" {
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
+    const root = ast.nodes[@backingInt(ast.root)].concat;
     try testing.expectEqual(@as(usize, 2), root.len);
     try testing.expectEqualDeep(Node{ .unicode_property = .{
         .property = .letter,
         .negated = false,
-    } }, ast.nodes[compat.backingInt(root[0])]);
+    } }, ast.nodes[@backingInt(root[0])]);
     try testing.expectEqualDeep(Node{ .unicode_property = .{
         .property = .number,
         .negated = true,
-    } }, ast.nodes[compat.backingInt(root[1])]);
+    } }, ast.nodes[@backingInt(root[1])]);
 }
 
 test "Parser lowers digit and space shorthands to Unicode property nodes" {
@@ -1499,24 +1498,24 @@ test "Parser lowers digit and space shorthands to Unicode property nodes" {
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    const root = ast.nodes[compat.backingInt(ast.root)].concat;
+    const root = ast.nodes[@backingInt(ast.root)].concat;
     try testing.expectEqual(@as(usize, 4), root.len);
     try testing.expectEqualDeep(Node{ .unicode_property = .{
         .property = .decimal_number,
         .negated = false,
-    } }, ast.nodes[compat.backingInt(root[0])]);
+    } }, ast.nodes[@backingInt(root[0])]);
     try testing.expectEqualDeep(Node{ .unicode_property = .{
         .property = .decimal_number,
         .negated = true,
-    } }, ast.nodes[compat.backingInt(root[1])]);
+    } }, ast.nodes[@backingInt(root[1])]);
     try testing.expectEqualDeep(Node{ .unicode_property = .{
         .property = .shorthand_whitespace,
         .negated = false,
-    } }, ast.nodes[compat.backingInt(root[2])]);
+    } }, ast.nodes[@backingInt(root[2])]);
     try testing.expectEqualDeep(Node{ .unicode_property = .{
         .property = .shorthand_whitespace,
         .negated = true,
-    } }, ast.nodes[compat.backingInt(root[3])]);
+    } }, ast.nodes[@backingInt(root[3])]);
 }
 
 test "Parser supports Unicode property items inside character classes" {
@@ -1526,7 +1525,7 @@ test "Parser supports Unicode property items inside character classes" {
     const ast = try parser.parse();
     defer ast.deinit(testing.allocator);
 
-    const class = ast.nodes[compat.backingInt(ast.root)].char_class;
+    const class = ast.nodes[@backingInt(ast.root)].char_class;
     try testing.expectEqual(@as(usize, 2), class.items.len);
     try testing.expectEqualDeep(ClassItem{ .unicode_property = .{
         .property = .letter,

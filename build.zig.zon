@@ -2,7 +2,7 @@
     .name = .regex,
     .version = "0.2.1",
     .fingerprint = 0x4204f8cab7dc3e7b,
-    .minimum_zig_version = "0.15.2",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{},
     .paths = .{
         "build.zig",

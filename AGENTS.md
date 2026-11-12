@@ -1,6 +1,7 @@
 # Working on zig-regex
 
 Use the compiler pinned in `.zigversion`. Keep this an independent repository.
+Zig 0.17.0 is the minimum; do not add support or checks for older Zig releases.
 Read `DESIGN.md` before changing the public API or matching semantics.
 The library owns parsing, compilation and matching; consumers own search loops,
 input admission, replacement syntax, IO and application policy.
