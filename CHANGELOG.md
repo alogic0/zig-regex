@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Add a pinned `zig-package-version` development dependency, a standalone
+  wrapper and `versions.zon` for the manifest and current README markers.
+- Reject inconsistent versions during release preparation and check version
+  updates in disposable directories. The regex module retains its existing
+  dependency and compiler boundaries.
+
 ## 0.2.1 — 2026-11-11
 
 - Prepare the GitHub README, bug and feature forms, pull request template and

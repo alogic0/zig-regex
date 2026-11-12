@@ -37,16 +37,24 @@ jobs:
         run: |
           test "$(zig version)" = "${{ matrix.zig }}"
           node --check tests/run-wasm.mjs
+          node --check tests/package-version.mjs
           sh -n tools/prepare-release.sh
           sh -n tools/check-package.sh
       - name: Check default compiler formatting
         if: matrix.zig == '0.17.0' && matrix.optimize == 'Debug'
-        run: zig fmt --check build.zig build.zig.zon src examples tests
+        run: zig fmt --check build.zig build.zig.zon versions.zon src examples tests tools
       - name: Run native and Wasm checks
         run: zig build test check example test-wasm -Doptimize=${{ matrix.optimize }} --summary all
       - name: Check independent package caller
         working-directory: tests/package
         run: zig build test -Doptimize=${{ matrix.optimize }} --summary all
+      - name: Check version tooling and pinned sources
+        if: matrix.zig == '0.17.0'
+        run: |
+          (cd tools/vendor/zig-package-version && sha256sum --check SHA256SUMS)
+          zig build-exe tools/package_version.zig -O${{ matrix.optimize }} -femit-bin=zig-out/package-version
+          zig-out/package-version get
+          node tests/package-version.mjs zig-out/package-version
 
   package:
     name: Verify source distribution (Zig ${{ matrix.zig }})
@@ -97,6 +105,10 @@ jobs:
           test -s NOTICE
           test ! -e .github
           test ! -e AGENTS.md
+          (cd tools/vendor/zig-package-version && sha256sum --check SHA256SUMS)
+          if [ "${{ matrix.zig }}" = "$(cat .zigversion)" ]; then
+            zig run tools/package_version.zig -- get
+          fi
           for optimize in Debug ReleaseSafe; do
             zig build test check example test-wasm -Doptimize="$optimize" --summary all
             (cd tests/package && zig build test -Doptimize="$optimize" --summary all)

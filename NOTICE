@@ -13,3 +13,9 @@ The generated Unicode tables derive from the Unicode Character Database,
 through zg (https://codeberg.org/atman/zg), source revision
 6ee2b0719052040c979ecde02a74a0cee6253364. Unicode's copyright and permission
 notice is included verbatim in UNICODE-LICENSE.
+
+Release tooling vendors unmodified zig-package-version sources at commit
+809950c81ec4b35181e8beb7e51e2b0e7160c503 from
+https://github.com/alogic0/zig-package-version. Its MIT license, original
+provenance notice and file digests are retained under
+tools/vendor/zig-package-version. This tool is not linked into the regex module.

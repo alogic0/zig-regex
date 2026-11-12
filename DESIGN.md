@@ -83,6 +83,14 @@ must preserve a recorded data revision and compare generated behavior.
 
 ## Verification scope
 
+Release version synchronization is a development dependency: an unmodified
+`zig-package-version` snapshot under `tools/vendor`, pinned by revision and
+SHA-256 receipts. The wrapper runs with Zig 0.17.0; `versions.zon` owns this
+repository's file and marker choices. It checks release metadata without
+joining the regex module's build graph or its Zig 0.15.2 compatibility boundary.
+Archive preparation rejects mismatched current versions, and setter acceptance
+tests run only in disposable directories.
+
 Provider unit tests, a separate package caller, a native example and a Wasm
 caller establish distinct boundaries. They do not replace consumer acceptance.
 For every adoption, exercise the consumer's existing diagnostics, empty matches,

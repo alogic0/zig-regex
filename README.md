@@ -4,7 +4,7 @@ Dependency-free regex library for Zig with Unicode support, captures, byte
 offsets, and explicit allocator ownership.
 
 Version **0.2.1** supports Zig **0.17.0** and **0.15.2**. The package exports one
-module, `regex`, and has no package, C-library or IO dependencies. Generated
+module, `regex`, which has no package, C-library or IO dependencies. Generated
 Unicode data is included; normal builds do not download anything.
 
 - Unicode properties and simple case folding, including scoped inline modes.
@@ -157,3 +157,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for ownership and regression expectations
 for GitHub setup and reproducible source distribution. CI checks Debug and
 ReleaseSafe, native and Wasm callers, archived sources, and archive dependencies
 with empty caches before retaining distribution artifacts.
+
+Release tooling uses a pinned, vendored copy of `zig-package-version` under
+[tools/vendor/zig-package-version](tools/vendor/zig-package-version/UPSTREAM).
+It requires Zig 0.17.0 and synchronizes the manifest and README versions through
+[versions.zon](versions.zon). See [version management](RELEASING.md#version-management)
+for the commands. Regex consumers do not compile this tool.

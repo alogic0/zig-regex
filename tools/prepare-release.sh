@@ -18,12 +18,7 @@ if [ -n "$(git status --porcelain --untracked-files=all)" ]; then
     printf '%s\n' 'release preparation requires a clean Git checkout' >&2
     exit 1
 fi
-regex_version=$(sed -n 's/^    \.version = "\([^"]*\)",$/\1/p' build.zig.zon)
-case "$regex_version" in
-    ''|*[!0-9A-Za-z.+-]*)
-        printf '%s\n' 'cannot read package version from build.zig.zon' >&2
-        exit 1 ;;
-esac
+regex_version=$("$regex_zig_exe" run tools/package_version.zig -- get)
 regex_revision=$(git rev-parse --verify HEAD)
 regex_output_dir=${1:-zig-out/dist}
 mkdir -p -- "$regex_output_dir"

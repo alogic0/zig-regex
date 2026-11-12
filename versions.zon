@@ -1,0 +1,18 @@
+// Current release markers only; historical changelog entries stay unchanged.
+.{
+    .{
+        .path = "build.zig.zon",
+        .patterns = .{
+            .{ .prefix = "    .version = \"", .suffix = "\"," },
+        },
+    },
+    .{
+        .path = "README.md",
+        .patterns = .{
+            .{ .prefix = "Version **", .suffix = "**" },
+            .{ .prefix = "Download the release's `zig-regex-", .suffix = ".tar.gz`" },
+            .{ .prefix = "zig fetch vendor/zig-regex-", .suffix = ".tar.gz" },
+            .{ .prefix = ".url = \"file:vendor/zig-regex-", .suffix = ".tar.gz\"" },
+        },
+    },
+}

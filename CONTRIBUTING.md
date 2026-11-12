@@ -20,7 +20,7 @@ execution on that target.
 Before proposing a change:
 
 ```sh
-zig fmt --check build.zig build.zig.zon src examples tests
+zig fmt --check build.zig build.zig.zon versions.zon src examples tests tools
 zig build test check example test-wasm --summary all
 zig build test check example test-wasm -Doptimize=ReleaseSafe --summary all
 cd tests/package
@@ -39,3 +39,21 @@ targets are Linux x86_64 and freestanding Wasm on both qualified compilers;
 additional platforms need actual
 target runtime evidence. For packaging changes, also run the archive-consumer
 check in [RELEASING.md](RELEASING.md) on both supported compilers.
+
+Version tooling uses the pinned Zig 0.17.0 compiler. For changes to its wrapper,
+configuration or vendored sources, run these checks from the repository root:
+
+```sh
+(cd tools/vendor/zig-package-version && sha256sum --check SHA256SUMS)
+mkdir -p zig-out
+for optimize in Debug ReleaseSafe; do
+  zig build-exe tools/package_version.zig -O"$optimize" -femit-bin=zig-out/package-version
+  zig-out/package-version get
+  node tests/package-version.mjs zig-out/package-version
+done
+```
+
+The setter tests use disposable copies of project files. Keep the upstream
+snapshot byte-for-byte intact; update its `UPSTREAM` receipt and `SHA256SUMS`
+when adopting a new verified commit. Project-specific markers belong in
+`versions.zon`; historical changelog entries are edited separately.

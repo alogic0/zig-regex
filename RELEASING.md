@@ -26,6 +26,26 @@ Wait for the CI workflow to pass on GitHub before publishing a release.
 The workflow runs on pushes and pull requests with read-only repository
 permissions and does not publish releases.
 
+## Version management
+
+The development dependency `zig-package-version` is pinned in
+`tools/vendor/zig-package-version/UPSTREAM`, with its MIT license and file
+checksums alongside the unmodified source. Use the compiler in `.zigversion`
+and run from the repository root:
+
+```sh
+zig run tools/package_version.zig -- get
+zig run tools/package_version.zig -- set MAJOR.MINOR.PATCH
+```
+
+Replace `MAJOR.MINOR.PATCH` with the release version you choose. `versions.zon`
+lists the manifest and current README markers, including archive filenames.
+`get` verifies that they agree; `set` updates them together. The helper accepts
+canonical numeric versions with components up to 65535, without prerelease or
+build labels. Review the diff and update the changelog separately; historical
+entries and existing release receipts are not rewritten. The tool is vendored
+so a checkout or source archive needs no sibling repository or network fetch.
+
 ## Prepare and verify
 
 Run the checks in `CONTRIBUTING.md`, review the changelog and commit a clean
@@ -42,11 +62,12 @@ root, and writes these files under `zig-out/dist/`:
 - `SHA256SUMS`: checksum of the exact compressed archive bytes.
 - `PACKAGE_INFO.txt`: package version, source revision, compiler and Zig hash.
 
-It rejects compiler drift and dirty tracked/untracked source. Repeating it at
+It rejects compiler drift, inconsistent version markers and dirty
+tracked/untracked source. Repeating it at
 the same commit must produce the same checksum. Keep an existing release's
 artifact unchanged; correct a published defect in a new version.
 An optional output-directory argument keeps different releases separate, for
-example `./tools/prepare-release.sh zig-out/dist/0.2.1`. Repository-only GitHub
+example `./tools/prepare-release.sh zig-out/dist/VERSION`. Repository-only GitHub
 and agent metadata is excluded through `.gitattributes`.
 
 Before distributing, extract the archive to an independent directory and repeat
@@ -78,12 +99,13 @@ module boundary without access to a sibling source checkout.
 For a release, create an annotated `vVERSION` tag at the verified commit and
 distribute the three verified files together. Tag, manifest and receipt versions
 must agree. Existing version tags must continue to identify their original
-commits. For the 0.2.1 packaging update, prepare fresh artifacts from the final
-commit and create a new tag when ready to publish:
+commits. Prepare fresh artifacts from the final commit and create a new tag
+when ready to publish:
 
 ```sh
-git tag -a v0.2.1 -m "zig-regex 0.2.1"
-git push origin tag v0.2.1
+regex_version=$(zig run tools/package_version.zig -- get)
+git tag -a "v$regex_version" -m "zig-regex $regex_version"
+git push origin tag "v$regex_version"
 ```
 
 After CI passes for that tag, create a GitHub release targeting it, copy the

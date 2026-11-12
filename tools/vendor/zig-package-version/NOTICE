@@ -1,0 +1,8 @@
+The original synchronization engine is extracted from tools/package_version.zig
+in Zig Mermaid Viewer at d6851d8cbc4cb18a7745d4bb0ab7e582ab9db5f0,
+under the MIT license retained in LICENSE. It is byte-identical to Zeta's helper
+at 67668ca02be20b60c11a91b81daa189d45360684 (original SHA-256
+0994dc9310365588bd36df7cef8169772c76bfb76ad6f19a543461e0b1f16007).
+Markdown Viewer at a1aa488230a223dd4a1e38d76c42d7328e284a90 carries the same
+engine with a different file table and additional tests; those tests informed
+the shared regressions. Consumer-specific configuration remains with consumers.

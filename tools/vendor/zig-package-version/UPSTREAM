@@ -1,0 +1,6 @@
+repository=https://github.com/alogic0/zig-package-version
+revision=809950c81ec4b35181e8beb7e51e2b0e7160c503
+version=0.1.0
+zig=0.17.0
+license=MIT
+files=Unmodified upstream files listed in SHA256SUMS
