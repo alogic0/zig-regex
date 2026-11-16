@@ -728,14 +728,33 @@ fn isAsciiWordTextUnit(unit: TextUnit) bool {
     return false;
 }
 
-fn wordBoundaryAt(haystack: []const u8, offset: usize, ascii_only: bool) bool {
-    var before_is_word = false;
-    var pos: usize = 0;
-    while (pos < offset) {
+/// Decode only the preceding UTF-8 unit, rather than revisiting the prefix.
+/// A malformed sequence still contributes one invalid byte at a time. If the
+/// offset lies inside a valid scalar, return the unit before that scalar, as
+/// forward decoding does. That second lookup ends at a non-continuation byte.
+fn previousTextUnit(haystack: []const u8, offset: usize) ?TextUnit {
+    const end = @min(offset, haystack.len);
+    if (end == 0) return null;
+    var start = end - 1;
+    while (start > 0 and end - start < 4 and haystack[start] & 0xC0 == 0x80) start -= 1;
+
+    var pos = start;
+    var previous: ?TextUnit = null;
+    while (pos < end) {
         const unit = nextTextUnit(haystack, &pos) orelse break;
-        if (unit.end > offset) break;
-        before_is_word = if (ascii_only) isAsciiWordTextUnit(unit) else isWordTextUnit(unit);
+        if (unit.end > end) return previous orelse previousTextUnit(haystack, start);
+        previous = unit;
     }
+    return previous;
+}
+
+fn wordBeforeAt(haystack: []const u8, offset: usize, ascii_only: bool) bool {
+    const unit = previousTextUnit(haystack, offset) orelse return false;
+    return if (ascii_only) isAsciiWordTextUnit(unit) else isWordTextUnit(unit);
+}
+
+fn wordBoundaryAt(haystack: []const u8, offset: usize, ascii_only: bool) bool {
+    const before_is_word = wordBeforeAt(haystack, offset, ascii_only);
 
     var after_pos = offset;
     const after_is_word = if (nextTextUnit(haystack, &after_pos)) |unit|
@@ -757,14 +776,73 @@ fn anchorEndAt(haystack: []const u8, offset: usize, multiline: bool) bool {
 }
 
 fn wordBoundaryStartHalfAt(haystack: []const u8, offset: usize, ascii_only: bool) bool {
-    var before_is_word = false;
-    var pos: usize = 0;
-    while (pos < offset) {
-        const unit = nextTextUnit(haystack, &pos) orelse break;
-        if (unit.end > offset) break;
-        before_is_word = if (ascii_only) isAsciiWordTextUnit(unit) else isWordTextUnit(unit);
+    return !wordBeforeAt(haystack, offset, ascii_only);
+}
+
+fn expectPredecessorMatchesForward(haystack: []const u8) !void {
+    for (0..haystack.len + 2) |offset| {
+        var pos: usize = 0;
+        var expected: ?TextUnit = null;
+        while (pos < offset) {
+            const unit = nextTextUnit(haystack, &pos) orelse break;
+            if (unit.end > offset) break;
+            expected = unit;
+        }
+        try std.testing.expectEqualDeep(expected, previousTextUnit(haystack, offset));
+        for ([_]bool{ false, true }) |ascii_only| {
+            const before = if (expected) |unit| (if (ascii_only) isAsciiWordTextUnit(unit) else isWordTextUnit(unit)) else false;
+            var after_pos = offset;
+            const after = if (nextTextUnit(haystack, &after_pos)) |unit| (if (ascii_only) isAsciiWordTextUnit(unit) else isWordTextUnit(unit)) else false;
+            try std.testing.expectEqual(before != after, wordBoundaryAt(haystack, offset, ascii_only));
+            try std.testing.expectEqual(!before, wordBoundaryStartHalfAt(haystack, offset, ascii_only));
+            try std.testing.expectEqual(!after, wordBoundaryEndHalfAt(haystack, offset, ascii_only));
+        }
     }
-    return !before_is_word;
+}
+
+test "word boundary predecessor agrees with forward decoding on all short byte contexts" {
+    var pair: [2]u8 = undefined;
+    for (0..256) |first| {
+        pair[0] = @intCast(first);
+        for (0..256) |second| {
+            pair[1] = @intCast(second);
+            try expectPredecessorMatchesForward(&pair);
+        }
+    }
+    const parts = [_][]const u8{ "a", "!", "é", "β", "猫", "😀", "\xcd\x85", "\xff", "\xc2", "\x80", "\xe2\x82", "\xf0\x9f\x98", "\xed\xa0\x80", "\xf4\x90\x80\x80", "\x80\x80\x80\x80\x80" };
+    var buffer: [32]u8 = undefined;
+    for (parts) |left| for (parts) |middle| for (parts) |right| {
+        var length: usize = 0;
+        for ([_][]const u8{ left, middle, right }) |part| {
+            @memcpy(buffer[length..][0..part.len], part);
+            length += part.len;
+        }
+        try expectPredecessorMatchesForward(buffer[0..length]);
+    };
+}
+
+test "word boundary searches preserve no hits late captures and original offset context on growing input" {
+    const testing = std.testing;
+    const program = try compileProgram(testing.allocator, "\\b(Shape)\\b|shape ==|shape !=", .{});
+    defer program.deinit(testing.allocator);
+    const half = try compileProgram(testing.allocator, "\\b{start-half}Shape\\b{end-half}", .{});
+    defer half.deinit(testing.allocator);
+    var engine = MatchEngine.init(testing.allocator);
+    for ([_]usize{ 1024, 8192, 65536 }) |length| {
+        const bytes = try testing.allocator.alloc(u8, length + 8);
+        defer testing.allocator.free(bytes);
+        @memset(bytes, 'x');
+        try testing.expect((try engine.firstMatchFrom(program, bytes, 0)) == null);
+        try testing.expect((try engine.firstMatchBytes(half, bytes)) == null);
+        @memcpy(bytes[length..], " Shape!\n");
+        const found = (try engine.firstMatchFrom(program, bytes, length - 1)).?;
+        defer found.deinit(testing.allocator);
+        try testing.expectEqual(Capture{ .start = length + 1, .end = length + 6 }, found.span);
+        try testing.expectEqual(found.span, found.groups[0]);
+        const raw = (try engine.firstMatchBytes(program, bytes)).?;
+        defer raw.deinit(testing.allocator);
+        try testing.expectEqual(found.span, raw.span);
+    }
 }
 
 fn wordBoundaryEndHalfAt(haystack: []const u8, offset: usize, ascii_only: bool) bool {

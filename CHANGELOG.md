@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.2.3 — 2026-11-16
+
+- Read bounded local UTF-8 context for word and start-half-boundary assertions,
+  avoiding repeated prefix scans during unanchored matching. Preserve Unicode
+  and ASCII-only classification, malformed-byte handling, captures and byte
+  offsets, including the existing classification inside multi-byte sequences.
+- Compare predecessor lookup with forward decoding across every two-byte
+  input and mixed valid/malformed sequences. Exercise growing misses and late
+  captures, the independent package caller and freestanding Wasm execution.
+
 ## 0.2.2 — 2026-11-12
 
 - Accept unescaped literal punctuation such as `.`, `+`, `?`, `*`, `$`, `|`,

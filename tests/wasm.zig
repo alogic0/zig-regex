@@ -16,5 +16,14 @@ export fn regexAcceptance() u32 {
     var selected = regex.compileRe(allocator, "x", .{ .simd_prefilter = true }) catch return 8;
     defer selected.deinit();
     if (!(selected.isMatch("aaaaaaaaaaaaaaaaax") catch return 9)) return 10;
+    var boundary = regex.compileRe(allocator, "\\b(Shape)\\b|shape ==|shape !=", .{}) catch return 11;
+    defer boundary.deinit();
+    const isolated = (boundary.firstMatch("éShape Shape") catch return 12) orelse return 13;
+    defer isolated.deinit(allocator);
+    if (isolated.span.start != 8 or isolated.span.end != 13) return 14;
+    if (isolated.groups[0].start != 8 or isolated.groups[0].end != 13) return 15;
+    const raw = (boundary.firstMatchBytes("\xffShape\xff") catch return 16) orelse return 17;
+    defer raw.deinit(allocator);
+    if (raw.span.start != 1 or raw.span.end != 6) return 18;
     return 0;
 }
